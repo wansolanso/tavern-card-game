@@ -53,64 +53,84 @@
 
 ### 1. Game Service
 **Responsibilities:**
-- Game session lifecycle (create, load, save, end)
-- Game state management (current phase, turn counter, boss status)
-- Player progression tracking
-- Victory/defeat conditions
-- State synchronization via WebSocket
+- Game lifecycle management (create, load, update)
+- Player inventory management (equip, unequip, discard)
+- Game state caching (Redis)
+- Turn and phase management
 
 **Key Operations:**
 - `createGame(playerId)` - Initialize new game session
-- `loadGame(gameId)` - Resume existing game
-- `saveGame(gameId, state)` - Persist game state
-- `endGame(gameId, outcome)` - Complete game session
-- `getGameState(gameId)` - Retrieve current state
+- `getGame(gameId)` - Retrieve current state (with caching)
+- `getPlayerGames(playerId)` - Get all games for player
+- `equipCard(gameId, cardId, slot)` - Equip card to slot
+- `unequipCard(gameId, cardId)` - Remove equipped card
+- `discardCard(gameId, cardId)` - Discard for slot upgrade
+- `updateGamePhase(gameId, phase)` - Change game phase
+- `advanceTurn(gameId)` - Increment turn counter
+- `updatePlayerHP(gameId, hp)` - Update player health
+- `replenishTavern(gameId)` - Refill empty tavern slots
+- `cacheGameState(game)` - Cache game in Redis
+- `clearGameCache(gameId)` - Invalidate cache
 
-### 2. Card Service
+**Source:** `src/services/GameService.js`
+
+### 2. Card Service (Card Catalog Management)
 **Responsibilities:**
-- Card database management (all available cards)
-- Player card inventory (equipped, reserve, tavern)
-- Equip/unequip operations with validation
-- Tavern card management (9-card pool)
-- Card acquisition logic
-- Slot upgrade mechanics (discard → dual slot)
+- Card database/catalog management
+- Card queries by rarity, type, boss status
+- Random card generation for tavern
+- Card data caching
 
 **Key Operations:**
-- `getCardById(cardId)` - Fetch card details
-- `equipCard(gameId, cardId, slot)` - Equip card to slot
-- `unequipCard(gameId, slot)` - Remove card from slot
-- `discardCard(gameId, cardId)` - Discard for slot upgrade
-- `acquireCard(gameId, cardId)` - Add defeated card to inventory
-- `replenishTavern(gameId)` - Auto-fill tavern slots
-- `getPlayerInventory(gameId)` - All player cards
+- `getAllCards()` - Fetch all cards from catalog
+- `getCardById(id)` - Fetch single card details
+- `getCardsByRarity(rarity)` - Filter cards by rarity
+- `getRegularCards()` - Get non-boss cards
+- `getBossCards()` - Get boss cards only
+- `getRandomCards(count, excludeIds)` - Generate random selection
+- `warmCache()` - Preload card cache on startup
+- `clearCache()` - Invalidate card cache
+
+**Note:** Card inventory operations (equip/unequip/discard) are in **GameService**, NOT CardService.
+
+**Source:** `src/services/CardService.js`
 
 ### 3. Combat Service
 **Responsibilities:**
-- Turn-based combat resolution
+- Turn-based combat resolution (single-turn attacks)
 - Attack damage calculation
-- Shield regeneration logic
-- Retaliation mechanics (all abilities from living cards)
-- Combat outcome determination
-- Boss battle mechanics
+- Shield mechanics and blocking
+- Retaliation with ability system
+- Combat logging
 
 **Key Operations:**
-- `initiateCombat(gameId, targetCardId)` - Start combat encounter
-- `executeTurn(gameId, combatId)` - Resolve player attack
-- `calculateDamage(attackPower, shield)` - Damage formula
-- `resolveRetaliation(gameId, combatId)` - Enemy counterattack
-- `endCombat(gameId, combatId, outcome)` - Complete combat
-- `getActiveCombat(gameId)` - Current combat state
+- `attackTavernCard(gameId, targetCardId)` - Execute full combat turn
+- `calculatePlayerAttack(game)` - Sum equipped HP cards
+- `calculatePlayerShield(game)` - Sum equipped shield cards
+- `calculateDamage(attackPower, targetShield)` - Damage after shield
+- `performRetaliation(game, attackerCard, combatLog)` - Enemy counterattack
+- `applyAbility(ability, game, combatLog, sourceName, sourceCard)` - Execute ability effects
 
-### 4. Authentication Service (MVP - Simple)
+**Note:** Combat is atomic (single REST call or socket event), not turn-by-turn.
+
+**Source:** `src/services/CombatService.js`
+
+### 4. Authentication Service
 **Responsibilities:**
-- Player session management
-- Simple token-based authentication
-- Guest player support (no registration required)
+- Guest session creation (no registration required)
+- JWT token generation and validation
+- Session management (Redis + database)
+- Session cleanup
 
 **Key Operations:**
-- `createGuestPlayer()` - Anonymous player session
-- `validateSession(token)` - Session verification
-- `refreshSession(token)` - Token refresh
+- `createGuestSession()` - Create anonymous player session with JWT
+- `validateToken(token)` - Verify JWT and session validity
+- `revokeSession(token)` - Invalidate session
+- `cleanExpiredSessions()` - Remove expired sessions from DB
+
+**Note:** Token refresh NOT supported in MVP (24h expiration, create new session).
+
+**Source:** `src/services/AuthService.js`
 
 ## API Architecture
 
@@ -224,29 +244,40 @@ Combat: {
 
 ### Cache Layers
 
-#### 1. Card Database Cache (Redis)
+#### 1. Card Catalog Cache (Redis)
 ```
-Key: cards:all
-TTL: No expiration (invalidate on card updates)
-Data: Complete card catalog
-Invalidation: Manual (admin updates only)
+Key Pattern: cards:all, cards:rarity:{rarity}, cards:{id}
+TTL: 1 hour (3600 seconds)
+Strategy: Cache-Aside
+Data: Card definitions with abilities
+Invalidation: Auto-expiration (cards rarely change)
 ```
+
+**Source:** `src/constants/game.js:61` - `CACHE_TTL.CARDS`
 
 #### 2. Game State Cache (Redis)
 ```
-Key: game:{gameId}
-TTL: 1 hour (sliding window on access)
-Data: Full game state
-Invalidation: On state changes, automatic eviction
+Key Pattern: game:{gameId}
+TTL: 5 minutes (300 seconds)
+Strategy: Write-Through
+Data: Complete game state with equipped cards, tavern, player stats
+Invalidation: Auto-expiration + explicit clearGameCache()
 ```
 
-#### 3. Player Inventory Cache (Redis)
+**Source:** `src/constants/game.js:60` - `CACHE_TTL.GAME`
+
+#### 3. Session Cache (Redis)
 ```
-Key: inventory:{gameId}
-TTL: 30 minutes
-Data: Equipped + reserve cards
-Invalidation: On card operations
+Key Pattern: session:{token}
+TTL: 24 hours (86400 seconds)
+Strategy: Write-Through
+Data: Player ID, guest ID, creation timestamp
+Invalidation: Logout or expiration
 ```
+
+**Source:** `src/constants/game.js:62` - `CACHE_TTL.SESSION`
+
+**Note:** Player inventory cache does NOT exist as separate entity. Inventory is part of game state cache.
 
 ### Cache Patterns
 
@@ -616,26 +647,30 @@ Response: 200 OK {
 
 **Backend Framework:**
 - Node.js 20 LTS
-- Express 4.x (REST API)
-- Socket.io 4.x (WebSocket)
+- Express 5.1.0 (REST API)
+- Socket.io 4.8.1 (WebSocket real-time communication)
+- Knex 3.1.0 (SQL query builder)
 
 **Database:**
-- SQLite (development)
-- PostgreSQL 15+ (production)
-- Knex.js (query builder & migrations)
+- SQLite3 (development)
+- PostgreSQL 14+ (production)
 
 **Caching:**
-- Redis 7.x (session, game state, card cache)
+- Redis Server 7.x (caching server)
+- redis 5.9.0 (npm client library for Redis)
 
 **Authentication:**
-- jsonwebtoken (JWT)
+- jsonwebtoken 9.0.2 (JWT authentication)
 
 **Validation:**
-- Zod (schema validation)
+- Zod 4.1.12 (schema validation)
+
+**Security:**
+- Helmet 8.1.0 (security headers)
+- express-rate-limit 8.2.1 (rate limiting)
 
 **Logging:**
-- Winston (structured logging)
-- Morgan (HTTP request logging)
+- Winston 3.18.3 (structured logging)
 
 **Testing:**
 - Jest (unit tests)

@@ -18,6 +18,7 @@ erDiagram
 
     players {
         uuid id PK
+        string guest_id UK
         timestamp created_at
         timestamp last_seen_at
     }
@@ -97,7 +98,7 @@ erDiagram
         uuid id PK
         uuid game_id FK
         string slot_type
-        boolean is_upgraded
+        integer capacity
         timestamp upgraded_at
     }
 
@@ -135,16 +136,22 @@ erDiagram
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | id | UUID | PRIMARY KEY | Unique player identifier |
+| guest_id | VARCHAR(255) | NOT NULL, UNIQUE | Guest account identifier |
 | created_at | TIMESTAMP | NOT NULL, DEFAULT NOW() | Account creation timestamp |
 | last_seen_at | TIMESTAMP | NOT NULL, DEFAULT NOW() | Last activity timestamp |
 
 **Indexes:**
 - PRIMARY KEY: `id`
+- UNIQUE INDEX: `idx_players_guest_id` on `guest_id`
+- INDEX: `idx_players_created_at` on `created_at`
 
 **Notes:**
 - Minimal fields for MVP guest authentication
+- `guest_id` used for identifying guest accounts
 - `last_seen_at` updated on each session validation
 - Future: Add username, email, password_hash, oauth fields
+
+**Source:** `database/migrations/20251115000001_create_players_and_sessions.js`
 
 ---
 
@@ -395,25 +402,28 @@ erDiagram
 |--------|------|-------------|-------------|
 | id | UUID | PRIMARY KEY | Unique upgrade entry |
 | game_id | UUID | NOT NULL, FOREIGN KEY → games(id) | Associated game |
-| slot_type | VARCHAR(20) | NOT NULL | Upgraded slot type |
-| is_upgraded | BOOLEAN | NOT NULL, DEFAULT TRUE | Upgrade status |
+| slot_type | VARCHAR(20) | NOT NULL | Slot type (hp, shield, special) |
+| capacity | INTEGER | NOT NULL, DEFAULT 1 | Slot capacity (1 = single, 2 = dual) |
 | upgraded_at | TIMESTAMP | NOT NULL, DEFAULT NOW() | Upgrade timestamp |
 
 **Enums:**
-- `slot_type`: `hp`, `shield`, `special`, `passive`, `normal`
+- `slot_type`: `hp`, `shield`, `special`
 
 **Indexes:**
 - PRIMARY KEY: `id`
-- UNIQUE INDEX: `idx_slot_upgrades_game_slot` on `(game_id, slot_type)`
+- INDEX: `idx_slot_upgrades_game_id` on `game_id`
 
 **Constraints:**
-- CHECK: `slot_type IN ('hp', 'shield', 'special', 'passive', 'normal')`
+- CHECK: `slot_type IN ('hp', 'shield', 'special')`
+- CHECK: `capacity IN (1, 2)`
 
 **Notes:**
-- Maximum 5 rows per game (one per slot type)
-- Presence of row indicates upgrade (regardless of `is_upgraded` value)
-- `is_upgraded` always TRUE (allows future downgrade mechanics)
-- Alternative design: Add `upgraded` boolean column to `games` table
+- Uses INTEGER capacity (1 or 2) NOT boolean is_upgraded
+- Default capacity is 1 (single card)
+- Upgrading changes capacity to 2 (dual cards)
+- Maximum 3 rows per game (one per slot type in MVP)
+
+**Source:** `database/migrations/20251115000004_create_game_cards_and_tavern.js:126`
 
 ---
 
@@ -608,7 +618,11 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER recalculate_hp_on_card_change
     AFTER INSERT OR UPDATE OR DELETE ON game_cards
     FOR EACH ROW
-    WHEN (NEW.slot_type = 'hp' OR OLD.slot_type = 'hp')
+    WHEN (
+      (TG_OP = 'INSERT' AND NEW.slot_type = 'hp') OR
+      (TG_OP = 'UPDATE' AND (NEW.slot_type = 'hp' OR OLD.slot_type = 'hp')) OR
+      (TG_OP = 'DELETE' AND OLD.slot_type = 'hp')
+    )
     EXECUTE FUNCTION recalculate_player_hp();
 ```
 

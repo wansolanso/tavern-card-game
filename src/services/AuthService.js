@@ -5,6 +5,8 @@ const { getRedisClient } = require('../config/redis');
 const jwtConfig = require('../config/jwt');
 const logger = require('../utils/logger');
 const { UnauthorizedError } = require('../utils/errors');
+const { GAME_CONFIG } = require('../constants/game');
+const { requireNonEmptyString } = require('../utils/validation');
 
 class AuthService {
   async createGuestSession() {
@@ -41,7 +43,7 @@ class AuthService {
       if (redis) {
         await redis.setEx(
           `session:${token}`,
-          24 * 60 * 60, // 24 hours in seconds
+          GAME_CONFIG.SESSION_CACHE_TTL,
           JSON.stringify({
             playerId: player.id,
             guestId: player.guest_id,
@@ -68,6 +70,9 @@ class AuthService {
 
   async validateToken(token) {
     try {
+      // Validate input
+      requireNonEmptyString(token, 'token');
+
       // Check Redis cache first (if available)
       const redis = await getRedisClient();
       if (redis) {
@@ -79,7 +84,9 @@ class AuthService {
           // Verify expiration
           if (new Date(session.expiresAt) < new Date()) {
             await this.revokeSession(token);
-            throw new UnauthorizedError('Session expired');
+            const error = new UnauthorizedError('Session expired');
+            error.code = 'AUTH_003'; // AUTH_EXPIRED_SESSION
+            throw error;
           }
 
           return {
@@ -93,12 +100,16 @@ class AuthService {
       const session = await PlayerRepository.findSessionByToken(token);
 
       if (!session) {
-        throw new UnauthorizedError('Invalid session');
+        const error = new UnauthorizedError('Invalid session');
+        error.code = 'AUTH_004'; // AUTH_SESSION_NOT_FOUND
+        throw error;
       }
 
       if (new Date(session.expires_at) < new Date()) {
         await this.revokeSession(token);
-        throw new UnauthorizedError('Session expired');
+        const error = new UnauthorizedError('Session expired');
+        error.code = 'AUTH_003'; // AUTH_EXPIRED_SESSION
+        throw error;
       }
 
       // Verify JWT signature
@@ -111,7 +122,7 @@ class AuthService {
       if (redis) {
         await redis.setEx(
           `session:${token}`,
-          24 * 60 * 60,
+          GAME_CONFIG.SESSION_CACHE_TTL,
           JSON.stringify({
             playerId: session.player_id,
             guestId: session.guest_id,
@@ -126,10 +137,14 @@ class AuthService {
       };
     } catch (error) {
       if (error instanceof jwt.JsonWebTokenError) {
-        throw new UnauthorizedError('Invalid token');
+        const jwtError = new UnauthorizedError('Invalid token');
+        jwtError.code = 'AUTH_005'; // AUTH_INVALID_JWT
+        throw jwtError;
       }
       if (error instanceof jwt.TokenExpiredError) {
-        throw new UnauthorizedError('Token expired');
+        const expError = new UnauthorizedError('Token expired');
+        expError.code = 'AUTH_003'; // AUTH_EXPIRED_SESSION
+        throw expError;
       }
       throw error;
     }
@@ -137,6 +152,9 @@ class AuthService {
 
   async revokeSession(token) {
     try {
+      // Validate input
+      requireNonEmptyString(token, 'token');
+
       // Remove from Redis (if available)
       const redis = await getRedisClient();
       if (redis) {

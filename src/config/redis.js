@@ -63,14 +63,15 @@ async function getRedisClient() {
   if (!redisClient) {
     return await createRedisClient();
   }
-  if (!redisClient.isOpen) {
+  // In Redis v5, use readyStatus to check connection state
+  if (redisClient.status && redisClient.status !== 'ready') {
     return null;
   }
   return redisClient;
 }
 
 async function closeRedisClient() {
-  if (redisClient && redisClient.isOpen) {
+  if (redisClient && (redisClient.status === 'ready' || redisClient.status === 'connecting')) {
     await redisClient.quit();
     redisClient = null;
     logger.info('Redis: Connection closed');

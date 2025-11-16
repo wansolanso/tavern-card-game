@@ -3,19 +3,26 @@ const CardService = require('./CardService');
 const { getRedisClient } = require('../config/redis');
 const logger = require('../utils/logger');
 const { NotFoundError, ConflictError } = require('../utils/errors');
-
-const GAME_CACHE_TTL = 60 * 5; // 5 minutes
-const TAVERN_SIZE = 9;
-const STARTING_HP = 100;
+const { createEnhancedError } = require('../utils/errorResponse');
+const {
+  VALID_SLOTS,
+  VALID_PHASES,
+  GAME_CONFIG,
+  validation
+} = require('../constants/game');
+const { requirePositiveInteger, requireNonNegativeInteger } = require('../utils/validation');
 
 class GameService {
   async createGame(playerId) {
     try {
+      // Validate input
+      requirePositiveInteger(playerId, 'playerId');
+
       // Create new game
       const game = await GameRepository.create(playerId);
 
-      // Initialize tavern with 9 random cards
-      const tavernCards = await CardService.getRandomCards(TAVERN_SIZE);
+      // Initialize tavern with random cards
+      const tavernCards = await CardService.getRandomCards(GAME_CONFIG.TAVERN_SIZE);
 
       for (let i = 0; i < tavernCards.length; i++) {
         const card = tavernCards[i];
@@ -30,8 +37,8 @@ class GameService {
 
       // Update game with starting HP
       await GameRepository.update(game.id, {
-        player_current_hp: STARTING_HP,
-        player_max_hp: STARTING_HP
+        player_current_hp: GAME_CONFIG.STARTING_HP,
+        player_max_hp: GAME_CONFIG.STARTING_MAX_HP
       });
 
       // Load full game state
@@ -89,10 +96,13 @@ class GameService {
 
   async equipCard(gameId, cardId, slot) {
     try {
+      // Validate input
+      requirePositiveInteger(gameId, 'gameId');
+      requirePositiveInteger(cardId, 'cardId');
+
       // Validate slot type
-      const validSlots = ['hp', 'shield', 'special', 'passive', 'normal'];
-      if (!validSlots.includes(slot)) {
-        throw new ConflictError(`Invalid slot type: ${slot}`);
+      if (!validation.isValidSlot(slot)) {
+        throw createEnhancedError('CARD_INVALID_SLOT', { slot, validSlots: VALID_SLOTS });
       }
 
       await GameRepository.equipCard(gameId, cardId, slot);
@@ -107,6 +117,10 @@ class GameService {
 
       return game;
     } catch (error) {
+      // Map ConflictError for slot full
+      if (error instanceof ConflictError && error.message.includes('full')) {
+        throw createEnhancedError('CARD_SLOT_FULL', { slot });
+      }
       logger.error(`Error equipping card:`, error);
       throw error;
     }
@@ -114,6 +128,10 @@ class GameService {
 
   async unequipCard(gameId, cardId) {
     try {
+      // Validate input
+      requirePositiveInteger(gameId, 'gameId');
+      requirePositiveInteger(cardId, 'cardId');
+
       await GameRepository.unequipCard(gameId, cardId);
 
       // Clear cache
@@ -132,6 +150,10 @@ class GameService {
 
   async discardCard(gameId, cardId) {
     try {
+      // Validate input
+      requirePositiveInteger(gameId, 'gameId');
+      requirePositiveInteger(cardId, 'cardId');
+
       await GameRepository.discardCard(gameId, cardId);
 
       // Clear cache
@@ -150,9 +172,11 @@ class GameService {
 
   async upgradeSlot(gameId, slotType) {
     try {
-      const validSlots = ['hp', 'shield', 'special', 'passive', 'normal'];
-      if (!validSlots.includes(slotType)) {
-        throw new ConflictError(`Invalid slot type: ${slotType}`);
+      // Validate input
+      requirePositiveInteger(gameId, 'gameId');
+
+      if (!validation.isValidSlot(slotType)) {
+        throw createEnhancedError('CARD_INVALID_SLOT', { slot: slotType, validSlots: VALID_SLOTS });
       }
 
       await GameRepository.upgradeSlot(gameId, slotType);
@@ -173,6 +197,9 @@ class GameService {
 
   async replenishTavern(gameId) {
     try {
+      // Validate input
+      requirePositiveInteger(gameId, 'gameId');
+
       const game = await this.getGame(gameId);
 
       // Get current tavern cards
@@ -180,7 +207,7 @@ class GameService {
       const occupiedPositions = game.tavern.map(c => c.position);
 
       // Find empty positions
-      const allPositions = Array.from({ length: TAVERN_SIZE }, (_, i) => i);
+      const allPositions = Array.from({ length: GAME_CONFIG.TAVERN_SIZE }, (_, i) => i);
       const emptyPositions = allPositions.filter(pos => !occupiedPositions.includes(pos));
 
       if (emptyPositions.length > 0) {
@@ -205,7 +232,7 @@ class GameService {
         // Clear cache
         await this.clearGameCache(gameId);
 
-        logger.info(`Tavern replenished with ${emptySlots} new cards for game ${gameId}`);
+        logger.info(`Tavern replenished with ${emptyPositions.length} new cards for game ${gameId}`);
       }
 
       return await this.getGame(gameId);
@@ -217,9 +244,11 @@ class GameService {
 
   async updateGamePhase(gameId, phase) {
     try {
-      const validPhases = ['tavern', 'combat', 'management', 'victory', 'defeat'];
-      if (!validPhases.includes(phase)) {
-        throw new ConflictError(`Invalid phase: ${phase}`);
+      // Validate input
+      requirePositiveInteger(gameId, 'gameId');
+
+      if (!validation.isValidPhase(phase)) {
+        throw createEnhancedError('GAME_INVALID_PHASE', { phase, validPhases: VALID_PHASES });
       }
 
       await GameRepository.update(gameId, { phase });
@@ -240,6 +269,9 @@ class GameService {
 
   async advanceTurn(gameId) {
     try {
+      // Validate input
+      requirePositiveInteger(gameId, 'gameId');
+
       const game = await this.getGame(gameId);
 
       await GameRepository.update(gameId, {
@@ -262,9 +294,13 @@ class GameService {
 
   async updatePlayerHP(gameId, hp) {
     try {
-      if (hp < 0) {
-        hp = 0;
-      }
+      // Validate input
+      requirePositiveInteger(gameId, 'gameId');
+      requireNonNegativeInteger(hp, 'hp');
+
+      // Clamp HP to valid range (0 to max)
+      const game = await this.getGame(gameId);
+      hp = validation.clampHP(hp, game.player_max_hp);
 
       await GameRepository.update(gameId, {
         player_current_hp: hp
@@ -290,7 +326,7 @@ class GameService {
       const redis = await getRedisClient();
       if (redis) {
         const cacheKey = `game:${game.id}`;
-        await redis.setEx(cacheKey, GAME_CACHE_TTL, JSON.stringify(game));
+        await redis.setEx(cacheKey, GAME_CONFIG.GAME_CACHE_TTL, JSON.stringify(game));
       }
     } catch (error) {
       // Log but don't throw - caching is optional

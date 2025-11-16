@@ -1,15 +1,15 @@
 const CardRepository = require('../repositories/CardRepository');
 const { getRedisClient } = require('../config/redis');
 const logger = require('../utils/logger');
-
-const CACHE_TTL = 60 * 60; // 1 hour in seconds
-const CACHE_KEY_PREFIX = 'cards';
+const { GAME_CONFIG, CARD_RARITY, CACHE_CONFIG } = require('../constants/game');
+const { requirePositiveInteger, requireNonEmptyString, requireNonNegativeInteger } = require('../utils/validation');
+const { ValidationError } = require('../utils/errors');
 
 class CardService {
   async getAllCards() {
     try {
       const redis = await getRedisClient();
-      const cacheKey = `${CACHE_KEY_PREFIX}:all`;
+      const cacheKey = `${CACHE_CONFIG.CARDS_PREFIX}:all`;
 
       // Try to get from cache first (if Redis available)
       if (redis) {
@@ -25,7 +25,7 @@ class CardService {
 
       // Cache the result (if Redis available)
       if (redis) {
-        await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(cards));
+        await redis.setEx(cacheKey, GAME_CONFIG.CARD_CACHE_TTL, JSON.stringify(cards));
       }
 
       logger.info(`Retrieved ${cards.length} cards from database`);
@@ -38,8 +38,11 @@ class CardService {
 
   async getCardById(id) {
     try {
+      // Validate input
+      requirePositiveInteger(id, 'id');
+
       const redis = await getRedisClient();
-      const cacheKey = `${CACHE_KEY_PREFIX}:${id}`;
+      const cacheKey = `${CACHE_CONFIG.CARDS_PREFIX}:${id}`;
 
       if (redis) {
         const cached = await redis.get(cacheKey);
@@ -51,7 +54,7 @@ class CardService {
       const card = await CardRepository.findById(id);
 
       if (redis) {
-        await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(card));
+        await redis.setEx(cacheKey, GAME_CONFIG.CARD_CACHE_TTL, JSON.stringify(card));
       }
 
       return card;
@@ -63,8 +66,11 @@ class CardService {
 
   async getCardsByRarity(rarity) {
     try {
+      // Validate input
+      requireNonEmptyString(rarity, 'rarity');
+
       const redis = await getRedisClient();
-      const cacheKey = `${CACHE_KEY_PREFIX}:rarity:${rarity}`;
+      const cacheKey = `${CACHE_CONFIG.CARDS_PREFIX}:rarity:${rarity}`;
 
       if (redis) {
         const cached = await redis.get(cacheKey);
@@ -76,7 +82,7 @@ class CardService {
       const cards = await CardRepository.getCardsByRarity(rarity);
 
       if (redis) {
-        await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(cards));
+        await redis.setEx(cacheKey, GAME_CONFIG.CARD_CACHE_TTL, JSON.stringify(cards));
       }
 
       return cards;
@@ -89,7 +95,7 @@ class CardService {
   async getRegularCards() {
     try {
       const redis = await getRedisClient();
-      const cacheKey = `${CACHE_KEY_PREFIX}:regular`;
+      const cacheKey = `${CACHE_CONFIG.CARDS_PREFIX}:regular`;
 
       if (redis) {
         const cached = await redis.get(cacheKey);
@@ -101,7 +107,7 @@ class CardService {
       const cards = await CardRepository.getRegularCards();
 
       if (redis) {
-        await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(cards));
+        await redis.setEx(cacheKey, GAME_CONFIG.CARD_CACHE_TTL, JSON.stringify(cards));
       }
 
       return cards;
@@ -114,7 +120,7 @@ class CardService {
   async getBossCards() {
     try {
       const redis = await getRedisClient();
-      const cacheKey = `${CACHE_KEY_PREFIX}:boss`;
+      const cacheKey = `${CACHE_CONFIG.CARDS_PREFIX}:boss`;
 
       if (redis) {
         const cached = await redis.get(cacheKey);
@@ -126,7 +132,7 @@ class CardService {
       const cards = await CardRepository.getBossCards();
 
       if (redis) {
-        await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(cards));
+        await redis.setEx(cacheKey, GAME_CONFIG.CARD_CACHE_TTL, JSON.stringify(cards));
       }
 
       return cards;
@@ -138,6 +144,14 @@ class CardService {
 
   async getRandomCards(count, excludeIds = []) {
     try {
+      // Validate input
+      requirePositiveInteger(count, 'count');
+
+      // Validate excludeIds is an array if provided
+      if (excludeIds !== undefined && excludeIds !== null && !Array.isArray(excludeIds)) {
+        throw new ValidationError('excludeIds must be an array');
+      }
+
       // Random cards should not be cached
       const cards = await CardRepository.getRandomCards(count, excludeIds);
 
@@ -159,7 +173,7 @@ class CardService {
       await this.getBossCards();
 
       // Warm cache with cards by rarity
-      const rarities = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+      const rarities = Object.values(CARD_RARITY);
       for (const rarity of rarities) {
         await this.getCardsByRarity(rarity);
       }
@@ -176,7 +190,7 @@ class CardService {
       const redis = await getRedisClient();
 
       if (redis) {
-        const keys = await redis.keys(`${CACHE_KEY_PREFIX}:*`);
+        const keys = await redis.keys(`${CACHE_CONFIG.CARDS_PREFIX}:*`);
 
         if (keys.length > 0) {
           await redis.del(keys);

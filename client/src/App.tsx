@@ -5,7 +5,9 @@ import { GameHeader } from './components/Layout/GameHeader';
 import { LobbyScreen } from './components/Board/LobbyScreen';
 import { GameBoard } from './components/Board/GameBoard';
 import { NotificationContainer } from './components/UI/Notification';
+import { ConnectionBanner } from './components/ConnectionStatus';
 import { useGame, useUI } from './store';
+import { ErrorBoundary, AppErrorFallback, GameErrorFallback, ErrorTrigger } from './components/ErrorBoundary';
 
 const AppContent: React.FC = () => {
   const game = useGame();
@@ -19,14 +21,20 @@ const AppContent: React.FC = () => {
       case 'lobby':
         return <LobbyScreen />;
       case 'tavern':
-        return <GameBoard />;
+        return (
+          <ErrorBoundary level="feature" fallback={GameErrorFallback}>
+            <GameBoard />
+          </ErrorBoundary>
+        );
       case 'boss':
         return (
-          <div className="flex-1 flex items-center justify-center">
-            <h1 className="text-4xl font-bold text-tavern-gold">
-              Boss Fight (Coming Soon)
-            </h1>
-          </div>
+          <ErrorBoundary level="feature" fallback={GameErrorFallback}>
+            <div className="flex-1 flex items-center justify-center">
+              <h1 className="text-4xl font-bold text-tavern-gold">
+                Boss Fight (Coming Soon)
+              </h1>
+            </div>
+          </ErrorBoundary>
         );
       case 'gameover':
         return (
@@ -52,6 +60,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-tavern-dark">
+      <ConnectionBanner />
       <GameHeader />
       <main className="flex-1 flex flex-col">
         {renderPhase()}
@@ -73,9 +82,13 @@ const AppContent: React.FC = () => {
 
 function App() {
   return (
-    <SocketProvider>
-      <AppContent />
-    </SocketProvider>
+    <ErrorBoundary level="app" fallback={AppErrorFallback}>
+      <SocketProvider>
+        <AppContent />
+      </SocketProvider>
+      {/* Development-only error testing tool */}
+      {import.meta.env.DEV && <ErrorTrigger />}
+    </ErrorBoundary>
   );
 }
 

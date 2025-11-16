@@ -76,6 +76,9 @@ const uiActionsSelector = (state: GameStore) => ({
   removeNotification: state.removeNotification,
   setLoading: state.setLoading,
   setTooltip: state.setTooltip,
+  setLoadingState: state.setLoadingState,
+  clearAllLoadingStates: state.clearAllLoadingStates,
+  isAnyLoading: state.isAnyLoading,
 });
 
 export const usePlayerActions = () => useGameStore(useShallow(playerActionsSelector));

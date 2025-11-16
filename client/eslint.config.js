@@ -19,5 +19,19 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // TypeScript-specific rules for type safety
+      '@typescript-eslint/no-explicit-any': 'error',
+      // Note: Unsafe rules disabled - require parserOptions.project configuration
+      // '@typescript-eslint/no-unsafe-assignment': 'warn',
+      // '@typescript-eslint/no-unsafe-call': 'warn',
+      // '@typescript-eslint/no-unsafe-member-access': 'warn',
+      // '@typescript-eslint/no-unsafe-return': 'warn',
+      '@typescript-eslint/explicit-module-boundary-types': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+      }],
+    },
   },
 ])

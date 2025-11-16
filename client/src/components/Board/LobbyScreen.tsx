@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Button } from '../UI/Button';
 import { useGameActions } from '../../store';
-import axios from 'axios';
-import { API_CONFIG, API_ENDPOINTS } from '../../config/constants';
+import apiClient from '../../config/axios';
+import { API_ENDPOINTS } from '../../config/constants';
 
 export const LobbyScreen: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
@@ -13,23 +13,15 @@ export const LobbyScreen: React.FC = () => {
       setIsCreating(true);
 
       // First, create a guest session
-      const authResponse = await axios.post(
-        `${API_CONFIG.BASE_URL}/api/${API_CONFIG.API_VERSION}${API_ENDPOINTS.AUTH.GUEST}`
-      );
+      // Token will be automatically set as HttpOnly cookie by backend
+      const authResponse = await apiClient.post(API_ENDPOINTS.AUTH.GUEST);
 
-      const token = authResponse.data.data.token;
-      localStorage.setItem('authToken', token);
+      // No need to manually store token - it's in HttpOnly cookie now
+      // This protects against XSS attacks
 
       // Then create a new game
-      const gameResponse = await axios.post(
-        `${API_CONFIG.BASE_URL}/api/${API_CONFIG.API_VERSION}${API_ENDPOINTS.GAMES.CREATE}`,
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      // Cookie will be automatically sent with this request
+      const gameResponse = await apiClient.post(API_ENDPOINTS.GAMES.CREATE);
 
       const game = gameResponse.data.data.game || gameResponse.data.data;
       initializeGame(game.id);
@@ -63,6 +55,7 @@ export const LobbyScreen: React.FC = () => {
             size="lg"
             onClick={handleNewGame}
             isLoading={isCreating}
+            loadingText="Creating Game..."
             className="w-full"
           >
             New Game

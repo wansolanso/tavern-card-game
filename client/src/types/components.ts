@@ -59,6 +59,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
   size?: 'sm' | 'md' | 'lg';
   isLoading?: boolean;
+  loadingText?: string;
 }
 
 export interface ModalProps {

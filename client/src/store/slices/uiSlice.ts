@@ -14,6 +14,14 @@ export interface UISlice {
     notifications: Notification[];
     isLoading: boolean;
     tooltipData: TooltipData | null;
+    // Enhanced loading state management
+    loadingStates: {
+      creatingGame: boolean;
+      creatingSession: boolean;
+      loadingGameState: boolean;
+      connectingSocket: boolean;
+      [key: string]: boolean; // Allow dynamic loading keys
+    };
   };
 
   // Actions
@@ -26,6 +34,10 @@ export interface UISlice {
   removeNotification: (id: string) => void;
   setLoading: (loading: boolean) => void;
   setTooltip: (data: TooltipData | null) => void;
+  // Enhanced loading state actions
+  setLoadingState: (key: string, value: boolean) => void;
+  clearAllLoadingStates: () => void;
+  isAnyLoading: () => boolean;
 }
 
 const initialUIState = {
@@ -40,6 +52,12 @@ const initialUIState = {
   notifications: [] as Notification[],
   isLoading: false,
   tooltipData: null,
+  loadingStates: {
+    creatingGame: false,
+    creatingSession: false,
+    loadingGameState: false,
+    connectingSocket: false,
+  },
 };
 
 export const createUISlice: StateCreator<UISlice> = (set) => ({
@@ -89,4 +107,28 @@ export const createUISlice: StateCreator<UISlice> = (set) => ({
   setTooltip: (data) => set((state) => ({
     ui: { ...state.ui, tooltipData: data }
   })),
+
+  setLoadingState: (key, value) => set((state) => ({
+    ui: {
+      ...state.ui,
+      loadingStates: { ...state.ui.loadingStates, [key]: value }
+    }
+  })),
+
+  clearAllLoadingStates: () => set((state) => ({
+    ui: {
+      ...state.ui,
+      loadingStates: {
+        creatingGame: false,
+        creatingSession: false,
+        loadingGameState: false,
+        connectingSocket: false,
+      }
+    }
+  })),
+
+  isAnyLoading: () => {
+    const state = (set as any).getState?.() || {};
+    return Object.values(state.ui?.loadingStates || {}).some((loading) => loading === true);
+  },
 });

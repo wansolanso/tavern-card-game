@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import type { ApiGame } from './types/api';
+import { getErrorMessage } from './utils/typeGuards';
 
 const API_BASE = 'http://localhost:3000/api/v1';
 
 function App() {
   const [token, setToken] = useState<string | null>(null);
   const [gameId, setGameId] = useState<number | null>(null);
-  const [gameData, setGameData] = useState<any>(null);
+  const [gameData, setGameData] = useState<ApiGame | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,9 +24,10 @@ function App() {
       localStorage.setItem('authToken', authToken);
 
       console.log('✅ Guest session created');
-    } catch (err: any) {
-      setError(err.message);
-      console.error('❌ Auth error:', err);
+    } catch (error: unknown) {
+      const errorMessage = getErrorMessage(error);
+      setError(errorMessage);
+      console.error('❌ Auth error:', error);
     } finally {
       setLoading(false);
     }
@@ -55,9 +58,10 @@ function App() {
       setGameData(game);
 
       console.log('✅ Game created:', game);
-    } catch (err: any) {
-      setError(err.message);
-      console.error('❌ Game creation error:', err);
+    } catch (error: unknown) {
+      const errorMessage = getErrorMessage(error);
+      setError(errorMessage);
+      console.error('❌ Game creation error:', error);
     } finally {
       setLoading(false);
     }
@@ -86,9 +90,10 @@ function App() {
       setGameData(game);
 
       console.log('✅ Game state refreshed:', game);
-    } catch (err: any) {
-      setError(err.message);
-      console.error('❌ Get game error:', err);
+    } catch (error: unknown) {
+      const errorMessage = getErrorMessage(error);
+      setError(errorMessage);
+      console.error('❌ Get game error:', error);
     } finally {
       setLoading(false);
     }
@@ -158,11 +163,10 @@ function App() {
               <div>
                 <h3 className="text-xl font-semibold mb-2">Tavern Cards ({gameData.tavern?.length || 0})</h3>
                 <div className="grid grid-cols-3 gap-2">
-                  {gameData.tavern?.map((card: any, i: number) => (
-                    <div key={i} className="bg-gray-700 p-3 rounded">
+                  {gameData.tavern?.map((card, i) => (
+                    <div key={card.id || i} className="bg-gray-700 p-3 rounded">
                       <p className="font-semibold">{card.name}</p>
-                      <p className="text-sm">HP: {card.current_hp}</p>
-                      <p className="text-sm">Shield: {card.current_shield}</p>
+                      <p className="text-sm">HP: {card.stats.hp || 0}</p>
                     </div>
                   ))}
                 </div>
@@ -171,8 +175,8 @@ function App() {
               <div>
                 <h3 className="text-xl font-semibold mb-2">Hand ({gameData.hand?.length || 0})</h3>
                 <div className="flex gap-2 flex-wrap">
-                  {gameData.hand?.map((card: any, i: number) => (
-                    <div key={i} className="bg-gray-700 p-2 rounded text-sm">
+                  {gameData.hand?.map((card, i) => (
+                    <div key={card.id || i} className="bg-gray-700 p-2 rounded text-sm">
                       {card.name}
                     </div>
                   ))}

@@ -9,6 +9,9 @@ import {
 import { SOCKET_EVENTS } from '../types/websocket';
 import type { GameStateUpdate, DamageEvent } from '../types';
 import type { Boss, Card } from '../types';
+import type { CombatResultPayload, GameUpdatedPayload, CombatLogEntry } from '../types/socket';
+import { logger } from '../utils/logger';
+import { parseBackendError, formatErrorForNotification } from '../utils/errorHandler';
 
 export const useSocketHandlers = () => {
   const { socket } = useSocket();
@@ -25,7 +28,7 @@ export const useSocketHandlers = () => {
 
     // Game state updates
     socket.on(SOCKET_EVENTS.GAME_STATE_UPDATE, (data: GameStateUpdate) => {
-      console.log('Game state update:', data);
+      logger.debug('Game state update:', data);
       gameActions.setPhase(data.phase);
       if (data.turn) {
         gameActions.incrementTurn();
@@ -39,13 +42,13 @@ export const useSocketHandlers = () => {
 
     // Tavern updates
     socket.on(SOCKET_EVENTS.TAVERN_UPDATE, (data: { cards: Card[] }) => {
-      console.log('Tavern update:', data);
+      logger.debug('Tavern update:', data);
       gameActions.setTavernCards(data.cards);
     });
 
     // Card equipped
     socket.on(SOCKET_EVENTS.CARD_EQUIPPED, (data: { card: Card; slot: string }) => {
-      console.log('Card equipped:', data);
+      logger.debug('Card equipped:', data);
       combatActions.addCombatEntry({
         type: 'card_equipped',
         message: `Equipped ${data.card.name} to ${data.slot} slot`,
@@ -54,7 +57,7 @@ export const useSocketHandlers = () => {
 
     // Combat events
     socket.on(SOCKET_EVENTS.DAMAGE_DEALT, (data: DamageEvent) => {
-      console.log('Damage dealt:', data);
+      logger.debug('Damage dealt:', data);
       combatActions.queueDamage(data);
       combatActions.addCombatEntry({
         type: 'damage',
@@ -66,7 +69,7 @@ export const useSocketHandlers = () => {
 
     // Boss events
     socket.on(SOCKET_EVENTS.BOSS_SPAWNED, (data: Boss) => {
-      console.log('Boss spawned:', data);
+      logger.debug('Boss spawned:', data);
       gameActions.setBoss(data);
       gameActions.setPhase('boss');
       combatActions.addCombatEntry({
@@ -76,7 +79,7 @@ export const useSocketHandlers = () => {
     });
 
     socket.on(SOCKET_EVENTS.BOSS_ATTACK, (data: { ability: string; damage: number }) => {
-      console.log('Boss attack:', data);
+      logger.debug('Boss attack:', data);
       playerActions.takeDamage(data.damage);
       combatActions.addCombatEntry({
         type: 'boss_attack',
@@ -87,7 +90,7 @@ export const useSocketHandlers = () => {
 
     // Game over
     socket.on(SOCKET_EVENTS.GAME_OVER, (data: { victory: boolean; score: number }) => {
-      console.log('Game over:', data);
+      logger.debug('Game over:', data);
       gameActions.endGame(data.victory);
       uiActions.addNotification({
         type: data.victory ? 'success' : 'error',
@@ -96,13 +99,85 @@ export const useSocketHandlers = () => {
       });
     });
 
+    // Combat result (from attack)
+    socket.on('combat_result', (data: CombatResultPayload) => {
+      logger.debug('Combat result:', data);
+
+      // Clear processing state
+      combatActions.setProcessing(false);
+
+      // Update game state with the new game data
+      if (data.game) {
+        gameActions.setTavernCards(data.game.tavern || []);
+        if (data.game.player_current_hp !== undefined) {
+          playerActions.setPlayerHp(data.game.player_current_hp);
+        }
+      }
+
+      // Add combat log entries
+      if (data.combatLog && data.combatLog.length > 0) {
+        data.combatLog.forEach((entry: CombatLogEntry) => {
+          combatActions.addCombatEntry({
+            type: entry.action as 'attack' | 'damage' | 'heal' | 'ability',
+            message: entry.result,
+            amount: entry.damage,
+          });
+        });
+      }
+
+      // Show notification for destroyed target
+      if (data.targetDestroyed) {
+        uiActions.addNotification({
+          type: 'success',
+          message: 'Target defeated!',
+          duration: 3000,
+        });
+      }
+    });
+
+    // Game updated (from equip/unequip/etc)
+    socket.on('game_updated', (data: GameUpdatedPayload) => {
+      logger.debug('Game updated:', data);
+      if (data.game) {
+        gameActions.setTavernCards(data.game.tavern || []);
+        if (data.game.player_current_hp !== undefined) {
+          playerActions.setPlayerHp(data.game.player_current_hp);
+        }
+      }
+    });
+
     // Error handling
     socket.on(SOCKET_EVENTS.ERROR, (error: { message: string; code?: string }) => {
-      console.error('Socket error:', error);
+      logger.error('Socket error:', error);
+
+      // Clear any pending processing states on error
+      combatActions.setProcessing(false);
+      uiActions.clearAllLoadingStates();
+
+      // Parse and format error for display
+      const errorDef = parseBackendError(error);
+
       uiActions.addNotification({
         type: 'error',
-        message: error.message,
-        duration: 5000,
+        message: `${errorDef.message}. ${errorDef.action}`,
+        duration: 6000,
+      });
+    });
+
+    socket.on('error', (error: { message: string; code?: string }) => {
+      logger.error('Socket error:', error);
+
+      // Clear any pending processing states on error
+      combatActions.setProcessing(false);
+      uiActions.clearAllLoadingStates();
+
+      // Parse and format error for display
+      const errorDef = parseBackendError(error);
+
+      uiActions.addNotification({
+        type: 'error',
+        message: `${errorDef.message}. ${errorDef.action}`,
+        duration: 6000,
       });
     });
 
@@ -115,6 +190,9 @@ export const useSocketHandlers = () => {
       socket.off(SOCKET_EVENTS.BOSS_ATTACK);
       socket.off(SOCKET_EVENTS.GAME_OVER);
       socket.off(SOCKET_EVENTS.ERROR);
+      socket.off('combat_result');
+      socket.off('game_updated');
+      socket.off('error');
     };
   }, [socket, gameActions, playerActions, combatActions, uiActions]);
 };

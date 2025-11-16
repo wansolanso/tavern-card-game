@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+
+  body {
+    @apply m-0 min-h-screen bg-tavern-dark text-white font-body antialiased;
+  }
+
+  #root {
+    @apply min-h-screen w-full;
+  }
+}
+
+@layer components {
+  .card-container {
+    @apply relative rounded-lg overflow-hidden transition-all duration-300;
+    @apply border-2 border-gray-700 bg-gradient-to-b from-gray-800 to-gray-900;
+  }
+
+  .card-container:hover {
+    @apply shadow-xl transform -translate-y-1;
+  }
+
+  .card-rarity-common {
+    @apply border-card-common;
+  }
+
+  .card-rarity-uncommon {
+    @apply border-card-uncommon;
+  }
+
+  .card-rarity-rare {
+    @apply border-card-rare;
+  }
+
+  .card-rarity-epic {
+    @apply border-card-epic;
+  }
+
+  .card-rarity-legendary {
+    @apply border-card-legendary animate-glow;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 bg-tavern-gold text-tavern-dark font-semibold rounded-lg;
+    @apply hover:bg-opacity-90 active:scale-95 transition-all duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-tavern-gold focus:ring-offset-2 focus:ring-offset-tavern-dark;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-tavern-wood text-white font-semibold rounded-lg;
+    @apply hover:bg-opacity-90 active:scale-95 transition-all duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-tavern-wood focus:ring-offset-2 focus:ring-offset-tavern-dark;
+  }
+
+  .btn-danger {
+    @apply px-4 py-2 bg-red-600 text-white font-semibold rounded-lg;
+    @apply hover:bg-red-700 active:scale-95 transition-all duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-red-600 focus:ring-offset-2 focus:ring-offset-tavern-dark;
+  }
+
+  .modal-overlay {
+    @apply fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50;
+  }
+
+  .modal-content {
+    @apply bg-gray-800 rounded-lg shadow-2xl max-w-2xl w-full mx-4 p-6;
+  }
+
+  .slot-container {
+    @apply relative w-32 h-44 rounded-lg border-2 border-dashed border-gray-600;
+    @apply flex items-center justify-center bg-gray-900 bg-opacity-50;
+    @apply transition-all duration-200;
+  }
+
+  .slot-container.active {
+    @apply border-tavern-gold bg-tavern-gold bg-opacity-10;
+  }
+
+  .combat-log {
+    @apply flex flex-col gap-2 overflow-y-auto max-h-96 pr-2;
+    scrollbar-width: thin;
+    scrollbar-color: #3d2817 #1a1410;
+  }
+
+  .combat-log::-webkit-scrollbar {
+    @apply w-2;
+  }
+
+  .combat-log::-webkit-scrollbar-track {
+    @apply bg-tavern-dark;
+  }
+
+  .combat-log::-webkit-scrollbar-thumb {
+    @apply bg-tavern-wood rounded;
+  }
+}
+
+@layer utilities {
+  .text-shadow {
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+  }
+
+  .glow-gold {
+    box-shadow: 0 0 20px rgba(212, 175, 55, 0.6);
+  }
+
+  .dragging {
+    @apply opacity-50 scale-95;
+  }
+}

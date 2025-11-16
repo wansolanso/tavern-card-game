@@ -1,0 +1,1275 @@
+openapi: 3.0.3
+info:
+  title: Tavern Card Game API
+  version: 1.0.0
+  description: |
+    REST API for the Tavern Card Game - a roguelike card game where players equip cards
+    to use their attributes in combat against tavern cards and bosses.
+
+    ## Architecture
+    - RESTful API for command operations (state changes)
+    - WebSocket (Socket.io) for real-time state updates
+    - JWT-based guest authentication
+
+    ## Base URL
+    - Development: `http://localhost:3000/api/v1`
+    - Production: `https://tavern-api.railway.app/api/v1`
+
+  contact:
+    name: Tavern Card Game Support
+
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Development server
+  - url: https://tavern-api.railway.app/api/v1
+    description: Production server
+
+tags:
+  - name: Authentication
+    description: Guest session management
+  - name: Games
+    description: Game session lifecycle and state management
+  - name: Cards
+    description: Card operations (equip, discard, acquire)
+  - name: Combat
+    description: Turn-based combat resolution
+  - name: Tavern
+    description: Tavern card pool management
+  - name: Health
+    description: Service health and monitoring
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ==================== AUTHENTICATION ====================
+  /auth/guest:
+    post:
+      tags: [Authentication]
+      summary: Create guest player session
+      description: |
+        Creates a new guest player session without requiring registration.
+        Returns a JWT token valid for 24 hours.
+      security: []
+      responses:
+        '201':
+          description: Guest session created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [playerId, token, expiresAt]
+                properties:
+                  playerId:
+                    type: string
+                    format: uuid
+                    example: "player_123e4567-e89b-12d3-a456-426614174000"
+                  token:
+                    type: string
+                    format: jwt
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  expiresAt:
+                    type: string
+                    format: date-time
+                    example: "2025-11-16T01:00:00Z"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/session:
+    get:
+      tags: [Authentication]
+      summary: Validate current session
+      description: Checks if the current JWT token is valid
+      responses:
+        '200':
+          description: Session is valid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  playerId:
+                    type: string
+                    format: uuid
+                  expiresAt:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==================== GAMES ====================
+  /games:
+    post:
+      tags: [Games]
+      summary: Create new game session
+      description: |
+        Initializes a new game for the authenticated player.
+        Sets up initial game state with empty slots and 9 random tavern cards.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                difficulty:
+                  type: string
+                  enum: [easy, normal, hard]
+                  default: normal
+                  description: Game difficulty (future feature)
+      responses:
+        '201':
+          description: Game created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Game'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    get:
+      tags: [Games]
+      summary: List player's games
+      description: Returns all games (active and completed) for the authenticated player
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, completed, abandoned]
+          description: Filter by game status
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        '200':
+          description: Games retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  games:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GameSummary'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /games/{gameId}:
+    get:
+      tags: [Games]
+      summary: Get game state
+      description: Retrieves complete game state including equipped cards, tavern, and combat status
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      responses:
+        '200':
+          description: Game state retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Game'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/GameNotFound'
+
+    delete:
+      tags: [Games]
+      summary: Abandon game
+      description: Marks the game as abandoned (soft delete)
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      responses:
+        '204':
+          description: Game abandoned successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/GameNotFound'
+        '409':
+          description: Game already ended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: "GAME_ALREADY_ENDED"
+                  message: "Cannot abandon a game that has already ended"
+
+  # ==================== CARDS ====================
+  /cards:
+    get:
+      tags: [Cards]
+      summary: Get all available cards
+      description: Returns the complete card catalog (cached)
+      security: []
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [hp, shield, special, passive, normal]
+          description: Filter cards by ability type
+      responses:
+        '200':
+          description: Card catalog retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cards:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Card'
+
+  /cards/{cardId}:
+    get:
+      tags: [Cards]
+      summary: Get card details
+      description: Retrieves detailed information for a specific card
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+      responses:
+        '200':
+          description: Card details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '404':
+          $ref: '#/components/responses/CardNotFound'
+
+  /games/{gameId}/inventory:
+    get:
+      tags: [Cards]
+      summary: Get player inventory
+      description: Returns all cards owned by the player (equipped + reserve)
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      responses:
+        '200':
+          description: Inventory retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  equipped:
+                    type: object
+                    properties:
+                      hp:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Card'
+                        minItems: 0
+                        maxItems: 2
+                      shield:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Card'
+                        minItems: 0
+                        maxItems: 2
+                      special:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Card'
+                        minItems: 0
+                        maxItems: 2
+                      passive:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Card'
+                        minItems: 0
+                        maxItems: 2
+                      normal:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Card'
+                        minItems: 0
+                        maxItems: 2
+                  reserve:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Card'
+                  slotUpgrades:
+                    type: object
+                    properties:
+                      hp:
+                        type: boolean
+                      shield:
+                        type: boolean
+                      special:
+                        type: boolean
+                      passive:
+                        type: boolean
+                      normal:
+                        type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/GameNotFound'
+
+  /games/{gameId}/cards/equip:
+    post:
+      tags: [Cards]
+      summary: Equip card to slot
+      description: |
+        Equips a card from reserve to a specific slot.
+
+        **Rules:**
+        - Card must be in reserve
+        - Slot must not be full (1 card if not upgraded, 2 if upgraded)
+        - Card must be valid for the slot type
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cardId, slot]
+              properties:
+                cardId:
+                  type: string
+                  example: "card_001"
+                slot:
+                  type: string
+                  enum: [hp, shield, special, passive, normal]
+                  example: "hp"
+                position:
+                  type: integer
+                  minimum: 0
+                  maximum: 1
+                  description: Position in slot (0 or 1). Only needed for dual slots.
+      responses:
+        '200':
+          description: Card equipped successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Game'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/GameNotFound'
+        '409':
+          description: Invalid card operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                slotOccupied:
+                  value:
+                    error:
+                      code: "SLOT_OCCUPIED"
+                      message: "Cannot equip card to slot: slot already occupied"
+                      details:
+                        slot: "hp"
+                        currentCard: "card_123"
+                        attemptedCard: "card_456"
+                cardNotOwned:
+                  value:
+                    error:
+                      code: "CARD_NOT_OWNED"
+                      message: "Card is not in player's reserve"
+
+  /games/{gameId}/cards/unequip:
+    post:
+      tags: [Cards]
+      summary: Unequip card from slot
+      description: Removes a card from an equipped slot and moves it to reserve
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slot]
+              properties:
+                slot:
+                  type: string
+                  enum: [hp, shield, special, passive, normal]
+                position:
+                  type: integer
+                  minimum: 0
+                  maximum: 1
+                  description: Position in slot (0 or 1). Required for dual slots.
+      responses:
+        '200':
+          description: Card unequipped successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Game'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/GameNotFound'
+        '409':
+          description: Slot is empty
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /games/{gameId}/cards/discard:
+    post:
+      tags: [Cards]
+      summary: Discard card for slot upgrade
+      description: |
+        Permanently discards a card to unlock dual slot for that card's type.
+
+        **Rules:**
+        - Card must be owned (equipped or reserve)
+        - Slot must not already be upgraded
+        - Action is irreversible
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cardId, slotType]
+              properties:
+                cardId:
+                  type: string
+                  example: "card_001"
+                slotType:
+                  type: string
+                  enum: [hp, shield, special, passive, normal]
+                  description: Slot type to upgrade
+      responses:
+        '200':
+          description: Card discarded and slot upgraded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Game'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/GameNotFound'
+        '409':
+          description: Invalid discard operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                alreadyUpgraded:
+                  value:
+                    error:
+                      code: "SLOT_ALREADY_UPGRADED"
+                      message: "Slot is already upgraded to dual capacity"
+
+  # ==================== TAVERN ====================
+  /games/{gameId}/tavern:
+    get:
+      tags: [Tavern]
+      summary: Get tavern cards
+      description: Returns the 9 cards currently available in the tavern
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      responses:
+        '200':
+          description: Tavern cards retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cards:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TavernCard'
+                    minItems: 9
+                    maxItems: 9
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/GameNotFound'
+
+  # ==================== COMBAT ====================
+  /games/{gameId}/combat:
+    post:
+      tags: [Combat]
+      summary: Initiate combat
+      description: |
+        Starts combat with a card from the tavern.
+
+        **Combat Flow:**
+        1. Player attacks with total attack power
+        2. Enemy's shield absorbs damage
+        3. Remaining damage applies to enemy HP
+        4. If enemy still alive, retaliates with ALL abilities
+        5. Enemy shield regenerates
+        6. Repeat until enemy defeated or player defeated
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetCardId]
+              properties:
+                targetCardId:
+                  type: string
+                  description: ID of the tavern card to fight
+                  example: "card_boss_001"
+      responses:
+        '201':
+          description: Combat initiated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CombatState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/GameNotFound'
+        '409':
+          description: Invalid combat state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                combatActive:
+                  value:
+                    error:
+                      code: "COMBAT_ALREADY_ACTIVE"
+                      message: "Cannot start new combat while combat is active"
+                invalidTarget:
+                  value:
+                    error:
+                      code: "INVALID_TARGET"
+                      message: "Target card is not in the tavern"
+
+    get:
+      tags: [Combat]
+      summary: Get active combat state
+      description: Returns current combat state if combat is active
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      responses:
+        '200':
+          description: Combat state retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CombatState'
+        '404':
+          description: No active combat or game not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /games/{gameId}/combat/attack:
+    post:
+      tags: [Combat]
+      summary: Execute attack turn
+      description: |
+        Executes one combat turn:
+        1. Player attacks enemy
+        2. Enemy retaliates if alive
+        3. Combat ends if either side defeated
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Attack executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CombatState'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No active combat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Combat already ended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /games/{gameId}/combat/end:
+    post:
+      tags: [Combat]
+      summary: End combat manually
+      description: |
+        Ends active combat (forfeit/flee).
+
+        **Rules:**
+        - Can only forfeit from non-boss encounters
+        - Forfeiting counts as defeat
+        - Card is not acquired
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  enum: [forfeit, victory, defeat]
+                  default: forfeit
+      responses:
+        '200':
+          description: Combat ended successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Game'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/GameNotFound'
+        '409':
+          description: Cannot forfeit boss battle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ==================== HEALTH ====================
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      description: Simple check to verify service is running
+      security: []
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "alive"
+
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      description: Checks if service is ready to handle requests (DB, cache connected)
+      security: []
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ready"
+                  checks:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        example: "ok"
+                      cache:
+                        type: string
+                        example: "ok"
+        '503':
+          description: Service is not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "not_ready"
+                  checks:
+                    type: object
+
+  /health/status:
+    get:
+      tags: [Health]
+      summary: Detailed health status
+      description: Deep health check with metrics (for monitoring)
+      security: []
+      responses:
+        '200':
+          description: Health status retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  uptime:
+                    type: integer
+                    description: Server uptime in seconds
+                    example: 3600
+                  database:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: "ok"
+                      latency:
+                        type: string
+                        example: "5ms"
+                  cache:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: "ok"
+                      hitRate:
+                        type: string
+                        example: "95%"
+                  websockets:
+                    type: object
+                    properties:
+                      connections:
+                        type: integer
+                        example: 42
+
+# ==================== COMPONENTS ====================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/guest
+
+  parameters:
+    GameId:
+      name: gameId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unique game identifier
+      example: "game_123e4567-e89b-12d3-a456-426614174000"
+
+    CardId:
+      name: cardId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Unique card identifier
+      example: "card_001"
+
+    IdempotencyKey:
+      name: X-Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unique key to ensure idempotent operations
+      example: "123e4567-e89b-12d3-a456-426614174000"
+
+  schemas:
+    # ==================== GAME ====================
+    Game:
+      type: object
+      required: [gameId, playerId, status, currentTurn, phase, equippedSlots, slotUpgrades, reserveCards, tavernCards, bossDefeated, createdAt, updatedAt]
+      properties:
+        gameId:
+          type: string
+          format: uuid
+          example: "game_123e4567-e89b-12d3-a456-426614174000"
+        playerId:
+          type: string
+          format: uuid
+          example: "player_123e4567-e89b-12d3-a456-426614174000"
+        status:
+          type: string
+          enum: [active, completed, abandoned]
+          example: "active"
+        currentTurn:
+          type: integer
+          minimum: 0
+          example: 15
+        phase:
+          type: string
+          enum: [tavern, combat, management, victory, defeat]
+          example: "tavern"
+          description: |
+            - tavern: Browsing tavern, can initiate combat
+            - combat: Active combat in progress
+            - management: Between combats, managing cards
+            - victory: Boss defeated, game won
+            - defeat: Player defeated, game lost
+        equippedSlots:
+          type: object
+          properties:
+            hp:
+              type: array
+              items:
+                $ref: '#/components/schemas/Card'
+              minItems: 0
+              maxItems: 2
+            shield:
+              type: array
+              items:
+                $ref: '#/components/schemas/Card'
+              minItems: 0
+              maxItems: 2
+            special:
+              type: array
+              items:
+                $ref: '#/components/schemas/Card'
+              minItems: 0
+              maxItems: 2
+            passive:
+              type: array
+              items:
+                $ref: '#/components/schemas/Card'
+              minItems: 0
+              maxItems: 2
+            normal:
+              type: array
+              items:
+                $ref: '#/components/schemas/Card'
+              minItems: 0
+              maxItems: 2
+        slotUpgrades:
+          type: object
+          properties:
+            hp:
+              type: boolean
+            shield:
+              type: boolean
+            special:
+              type: boolean
+            passive:
+              type: boolean
+            normal:
+              type: boolean
+        reserveCards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Card'
+        tavernCards:
+          type: array
+          items:
+            $ref: '#/components/schemas/TavernCard'
+          minItems: 9
+          maxItems: 9
+        activeCombat:
+          allOf:
+            - $ref: '#/components/schemas/CombatState'
+          nullable: true
+        bossDefeated:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-11-15T01:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-11-15T02:30:00Z"
+
+    GameSummary:
+      type: object
+      required: [gameId, status, currentTurn, phase, updatedAt]
+      properties:
+        gameId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, completed, abandoned]
+        currentTurn:
+          type: integer
+        phase:
+          type: string
+          enum: [tavern, combat, management, victory, defeat]
+        bossDefeated:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+
+    # ==================== CARD ====================
+    Card:
+      type: object
+      required: [cardId, name, hp, shield, abilities, isBoss]
+      properties:
+        cardId:
+          type: string
+          example: "card_001"
+        name:
+          type: string
+          example: "Fierce Warrior"
+        description:
+          type: string
+          example: "A battle-hardened warrior with defensive prowess"
+        hp:
+          type: integer
+          minimum: 1
+          example: 50
+        shield:
+          type: integer
+          minimum: 0
+          example: 10
+        abilities:
+          type: object
+          properties:
+            special:
+              allOf:
+                - $ref: '#/components/schemas/Ability'
+              nullable: true
+              description: "Special ability (⭐)"
+            passive:
+              allOf:
+                - $ref: '#/components/schemas/Ability'
+              nullable: true
+              description: "Passive ability (🎖️)"
+            normal:
+              allOf:
+                - $ref: '#/components/schemas/Ability'
+              nullable: true
+              description: "Normal ability (⬡)"
+        isBoss:
+          type: boolean
+          example: false
+        rarity:
+          type: string
+          enum: [common, uncommon, rare, epic, legendary]
+          example: "common"
+        imageUrl:
+          type: string
+          format: uri
+          nullable: true
+          example: "https://cdn.tavern.game/cards/001.png"
+
+    TavernCard:
+      allOf:
+        - $ref: '#/components/schemas/Card'
+        - type: object
+          required: [position, currentHp]
+          properties:
+            position:
+              type: integer
+              minimum: 0
+              maximum: 8
+              description: Position in tavern (0-8)
+              example: 0
+            currentHp:
+              type: integer
+              minimum: 0
+              description: Current HP in tavern (may be damaged from previous encounter)
+              example: 50
+
+    Ability:
+      type: object
+      required: [name, type, power]
+      properties:
+        name:
+          type: string
+          example: "Shield Bash"
+        description:
+          type: string
+          example: "Deals damage equal to current shield value"
+        type:
+          type: string
+          enum: [damage, heal, shield, buff, debuff, special]
+          example: "damage"
+        power:
+          type: integer
+          description: Base power value
+          example: 15
+        effects:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [stun, poison, bleed, burn, freeze]
+              duration:
+                type: integer
+              value:
+                type: integer
+
+    # ==================== COMBAT ====================
+    CombatState:
+      type: object
+      required: [combatId, gameId, targetCard, targetCurrentHp, turn, playerStats, combatLog, status]
+      properties:
+        combatId:
+          type: string
+          format: uuid
+          example: "combat_123e4567-e89b-12d3-a456-426614174000"
+        gameId:
+          type: string
+          format: uuid
+        targetCard:
+          $ref: '#/components/schemas/Card'
+        targetCurrentHp:
+          type: integer
+          minimum: 0
+          example: 35
+        targetCurrentShield:
+          type: integer
+          minimum: 0
+          example: 10
+        turn:
+          type: integer
+          minimum: 1
+          example: 3
+        playerStats:
+          type: object
+          required: [totalHp, currentHp, totalShield, currentShield, attackPower, abilities]
+          properties:
+            totalHp:
+              type: integer
+              description: Sum of all HP cards
+              example: 100
+            currentHp:
+              type: integer
+              example: 75
+            totalShield:
+              type: integer
+              description: Sum of all shield cards
+              example: 30
+            currentShield:
+              type: integer
+              description: Shield regenerates each turn
+              example: 30
+            attackPower:
+              type: integer
+              description: Calculated from abilities
+              example: 25
+            abilities:
+              type: array
+              items:
+                $ref: '#/components/schemas/Ability'
+        combatLog:
+          type: array
+          items:
+            $ref: '#/components/schemas/CombatEvent'
+        status:
+          type: string
+          enum: [active, victory, defeat]
+          example: "active"
+
+    CombatEvent:
+      type: object
+      required: [turn, actor, action, result]
+      properties:
+        turn:
+          type: integer
+          example: 1
+        actor:
+          type: string
+          enum: [player, enemy]
+          example: "player"
+        action:
+          type: string
+          example: "attack"
+        result:
+          type: object
+          properties:
+            damage:
+              type: integer
+              example: 15
+            shieldDamage:
+              type: integer
+              example: 10
+            hpDamage:
+              type: integer
+              example: 5
+            abilityUsed:
+              type: string
+              example: "Shield Bash"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-11-15T02:15:30Z"
+
+    # ==================== COMMON ====================
+    Pagination:
+      type: object
+      properties:
+        total:
+          type: integer
+          example: 100
+        limit:
+          type: integer
+          example: 20
+        offset:
+          type: integer
+          example: 0
+        hasMore:
+          type: boolean
+          example: true
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, timestamp]
+          properties:
+            code:
+              type: string
+              example: "INVALID_CARD_OPERATION"
+            message:
+              type: string
+              example: "Cannot equip card to slot: slot already occupied"
+            details:
+              type: object
+              additionalProperties: true
+              example:
+                slot: "hp"
+                currentCard: "card_123"
+                attemptedCard: "card_456"
+            timestamp:
+              type: string
+              format: date-time
+              example: "2025-11-15T01:00:00Z"
+            requestId:
+              type: string
+              example: "req_abc123"
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters or body
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "VALIDATION_ERROR"
+              message: "Invalid request body"
+              details:
+                field: "slot"
+                error: "Must be one of: hp, shield, special, passive, normal"
+
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "UNAUTHORIZED"
+              message: "Missing or invalid authentication token"
+
+    Forbidden:
+      description: Valid token but insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "FORBIDDEN"
+              message: "You do not have permission to access this game"
+
+    GameNotFound:
+      description: Game not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "GAME_NOT_FOUND"
+              message: "Game with ID 'game_123' does not exist"
+
+    CardNotFound:
+      description: Card not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "CARD_NOT_FOUND"
+              message: "Card with ID 'card_999' does not exist"
+
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "INTERNAL_SERVER_ERROR"
+              message: "An unexpected error occurred"
+              requestId: "req_abc123"

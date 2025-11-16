@@ -2,23 +2,29 @@ const GameRepository = require('../repositories/GameRepository');
 const GameService = require('./GameService');
 const logger = require('../utils/logger');
 const { ConflictError } = require('../utils/errors');
+const { createEnhancedError } = require('../utils/errorResponse');
+const { requirePositiveInteger } = require('../utils/validation');
 
 class CombatService {
   async attackTavernCard(gameId, targetCardId) {
     try {
+      // Validate input parameters (defensive programming)
+      requirePositiveInteger(gameId, 'gameId');
+      requirePositiveInteger(targetCardId, 'targetCardId');
+
       const game = await GameService.getGame(gameId);
 
       // Find target card in tavern
       const targetCard = game.tavern.find(c => c.id === targetCardId);
       if (!targetCard) {
-        throw new ConflictError('Target card not found in tavern');
+        throw createEnhancedError('COMBAT_TARGET_NOT_IN_TAVERN', { targetCardId });
       }
 
       // Calculate player attack power (sum of all equipped cards' HP)
       const playerAttack = this.calculatePlayerAttack(game);
 
       if (playerAttack === 0) {
-        throw new ConflictError('No attack power - equip cards first');
+        throw createEnhancedError('COMBAT_NO_ATTACK_POWER');
       }
 
       // Create combat log
@@ -168,49 +174,99 @@ class CombatService {
     return { damage, shieldBlocked };
   }
 
+  /**
+   * Perform retaliation from a card that was attacked
+   * Applies damage to player, heal/shield to the card itself
+   * @param {Object} game - Current game state
+   * @param {Object} attackerCard - The card performing retaliation
+   * @param {Array} combatLog - Combat log to append events
+   * @returns {Object} - { totalDamage, totalHeal, totalShield }
+   */
   async performRetaliation(game, attackerCard, combatLog) {
     let totalDamage = 0;
+    let totalHeal = 0;
+    let totalShield = 0;
 
     // Get all abilities from the attacking card
     const abilities = attackerCard.abilities || {};
 
-    // Special abilities
-    if (abilities.special && abilities.special.length > 0) {
-      for (const ability of abilities.special) {
-        const damage = this.applyAbility(ability, game, combatLog, attackerCard.name);
-        totalDamage += damage;
+    // Process all ability types
+    const abilityTypes = ['special', 'normal', 'passive'];
+
+    for (const abilityType of abilityTypes) {
+      if (abilities[abilityType] && abilities[abilityType].length > 0) {
+        for (const ability of abilities[abilityType]) {
+          // Apply ability and get effects
+          const effects = this.applyAbility(
+            ability,
+            game,
+            combatLog,
+            attackerCard.name,
+            attackerCard
+          );
+
+          totalDamage += effects.damage;
+          totalHeal += effects.heal;
+          totalShield += effects.shield;
+        }
       }
     }
 
-    // Normal abilities
-    if (abilities.normal && abilities.normal.length > 0) {
-      for (const ability of abilities.normal) {
-        const damage = this.applyAbility(ability, game, combatLog, attackerCard.name);
-        totalDamage += damage;
-      }
+    // Apply heal to the card (increase HP, capped at max HP from card catalog)
+    if (totalHeal > 0) {
+      const newHP = Math.min(
+        attackerCard.current_hp + totalHeal,
+        attackerCard.hp // max HP from card catalog
+      );
+
+      await GameRepository.updateTavernCardStats(
+        game.id,
+        attackerCard.id,
+        newHP,
+        attackerCard.current_shield
+      );
+
+      logger.info(`Card ${attackerCard.name} healed for ${totalHeal} HP (${attackerCard.current_hp} → ${newHP})`);
     }
 
-    // Passive abilities (for MVP, simplified)
-    if (abilities.passive && abilities.passive.length > 0) {
-      for (const ability of abilities.passive) {
-        const damage = this.applyAbility(ability, game, combatLog, attackerCard.name);
-        totalDamage += damage;
-      }
+    // Apply shield to the card (increase current shield)
+    if (totalShield > 0) {
+      const newShield = attackerCard.current_shield + totalShield;
+
+      await GameRepository.updateTavernCardStats(
+        game.id,
+        attackerCard.id,
+        attackerCard.current_hp,
+        newShield
+      );
+
+      logger.info(`Card ${attackerCard.name} gained ${totalShield} shield (${attackerCard.current_shield} → ${newShield})`);
     }
 
-    return { totalDamage };
+    return { totalDamage, totalHeal, totalShield };
   }
 
-  applyAbility(ability, game, combatLog, sourceName) {
+  /**
+   * Apply ability effects to the game state
+   * @param {Object} ability - The ability to apply
+   * @param {Object} game - Current game state
+   * @param {Array} combatLog - Combat log to append events
+   * @param {string} sourceName - Name of the card using the ability
+   * @param {Object} sourceCard - The card object using the ability (for heal/shield)
+   * @returns {Object} - { damage, heal, shield } values applied
+   */
+  applyAbility(ability, game, combatLog, sourceName, sourceCard = null) {
     let damage = 0;
+    let heal = 0;
+    let shield = 0;
 
     // Calculate player's shield
     const playerShield = this.calculatePlayerShield(game);
 
-    switch (ability.effect_type) {
+    switch (ability.type) {
       case 'damage':
         const { damage: actualDamage, shieldBlocked } = this.calculateDamage(
-          ability.effect_value,
+          ability.power,
           playerShield
         );
 
@@ -221,7 +277,7 @@ class CombatService {
           action: 'ability',
           source: sourceName,
           ability: ability.name,
-          power: ability.effect_value,
+          power: ability.power,
           shieldBlocked,
           damage: actualDamage,
           result: `${sourceName} used ${ability.name} - dealt ${actualDamage} damage`
@@ -229,23 +285,30 @@ class CombatService {
         break;
 
       case 'heal':
-        // Target card heals itself (not implemented in MVP - needs card state tracking)
+        // Heal the source card (card heals itself)
+        heal = ability.power;
+
         combatLog.push({
           actor: 'enemy',
           action: 'ability',
           source: sourceName,
           ability: ability.name,
-          result: `${sourceName} used ${ability.name} - healed ${ability.effect_value} HP`
+          heal: heal,
+          result: `${sourceName} used ${ability.name} - healed ${heal} HP`
         });
         break;
 
       case 'shield':
+        // Add shield to source card
+        shield = ability.power;
+
         combatLog.push({
           actor: 'enemy',
           action: 'ability',
           source: sourceName,
           ability: ability.name,
-          result: `${sourceName} used ${ability.name} - gained ${ability.effect_value} shield`
+          shield: shield,
+          result: `${sourceName} used ${ability.name} - gained ${shield} shield`
         });
         break;
 
@@ -259,7 +322,7 @@ class CombatService {
         });
     }
 
-    return damage;
+    return { damage, heal, shield };
   }
 
   calculatePlayerShield(game) {

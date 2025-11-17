@@ -1,6 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { ANIMATION_VARIANTS } from '../../animations/config';
+import { CardPreview } from './CardPreview';
+
+interface Ability {
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  power: number;
+}
 
 interface TavernCardData {
   id: string | number;
@@ -9,6 +18,11 @@ interface TavernCardData {
   current_shield: number;
   rarity?: string;
   image_url?: string;
+  abilities?: {
+    special?: Ability[];
+    passive?: Ability[];
+    normal?: Ability[];
+  };
 }
 
 interface TavernCardProps {
@@ -24,10 +38,26 @@ export const TavernCard: React.FC<TavernCardProps> = ({
   isSelected = false,
   isDisabled = false
 }) => {
+  const [showPreview, setShowPreview] = useState(false);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
   const handleClick = () => {
     if (!isDisabled && onClick) {
       onClick(card);
     }
+  };
+
+  const handleMouseEnter = (e: React.MouseEvent) => {
+    setMousePos({ x: e.clientX, y: e.clientY });
+    setShowPreview(true);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    setMousePos({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleMouseLeave = () => {
+    setShowPreview(false);
   };
 
   const rarityColors: Record<string, string> = {
@@ -39,66 +69,85 @@ export const TavernCard: React.FC<TavernCardProps> = ({
   };
 
   const borderColor = card.rarity ? rarityColors[card.rarity] : 'border-gray-600';
-
-  // Selected state - add golden border and glow
-  const selectedClass = isSelected
-    ? 'border-yellow-400 ring-4 ring-yellow-400 ring-opacity-50 shadow-2xl'
-    : borderColor;
-
-  // Disabled state
-  const disabledClass = isDisabled
-    ? 'opacity-50 cursor-not-allowed'
-    : 'cursor-pointer hover:shadow-lg';
+  const selectedClass = isSelected ? 'border-yellow-400 ring-2 ring-yellow-400' : borderColor;
 
   return (
-    <motion.div
-      className={`bg-gray-700 rounded-lg p-4 border-2 ${selectedClass} ${disabledClass} transition-all duration-200`}
-      variants={ANIMATION_VARIANTS.card}
-      initial="initial"
-      animate={isSelected ? "hover" : "animate"}
-      whileHover={!isDisabled ? "hover" : undefined}
-      whileTap={!isDisabled ? "tap" : undefined}
-      onClick={handleClick}
-      style={{ width: '160px', minHeight: '200px' }}
-    >
-      {/* Card Image/Icon */}
-      <div className="relative h-24 bg-gradient-to-b from-gray-600 to-gray-800 rounded flex items-center justify-center mb-3">
-        {card.image_url ? (
-          <img
-            src={card.image_url}
-            alt={card.name}
-            className="w-full h-full object-cover rounded"
-          />
-        ) : (
-          <div className="text-4xl">⚔️</div>
-        )}
-
-        {/* Rarity Badge */}
+    <>
+      <motion.div
+        className={`bg-gray-800 rounded border-2 ${selectedClass} ${isDisabled ? 'opacity-50' : 'cursor-pointer hover:shadow-lg'} transition-all p-2 flex flex-col h-full`}
+        variants={ANIMATION_VARIANTS.card}
+        initial="initial"
+        animate={isSelected ? "hover" : "animate"}
+        whileHover={!isDisabled ? "hover" : undefined}
+        onClick={handleClick}
+        onMouseEnter={handleMouseEnter}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      >
+      {/* Header - name and rarity */}
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="font-bold text-white text-xs truncate flex-1">{card.name}</h3>
         {card.rarity && (
-          <div className="absolute top-1 right-1 px-2 py-0.5 rounded text-xs font-bold bg-black bg-opacity-75 text-white">
-            {card.rarity.charAt(0).toUpperCase()}
-          </div>
+          <span className="text-[9px] font-bold text-white bg-black bg-opacity-50 px-1 py-0.5 rounded uppercase ml-1">
+            {card.rarity.charAt(0)}
+          </span>
         )}
       </div>
-
-      {/* Card Name */}
-      <h3 className="font-bold text-white text-center mb-2 truncate">
-        {card.name}
-      </h3>
 
       {/* Stats */}
-      <div className="flex justify-around text-sm">
-        <div className="flex flex-col items-center">
-          <span className="text-red-400 text-lg">❤️</span>
-          <span className="font-bold text-white">{card.current_hp}</span>
-          <span className="text-xs text-gray-400">HP</span>
+      <div className="flex gap-1.5 mb-2">
+        <div className="flex-1 bg-black bg-opacity-30 rounded p-1 flex items-center justify-center gap-1 border border-red-500 border-opacity-30">
+          <span className="text-red-400 text-sm">❤️</span>
+          <span className="font-bold text-white text-xs">{card.current_hp}</span>
         </div>
-        <div className="flex flex-col items-center">
-          <span className="text-blue-400 text-lg">🛡️</span>
-          <span className="font-bold text-white">{card.current_shield}</span>
-          <span className="text-xs text-gray-400">Shield</span>
+        <div className="flex-1 bg-black bg-opacity-30 rounded p-1 flex items-center justify-center gap-1 border border-blue-500 border-opacity-30">
+          <span className="text-blue-400 text-sm">🛡️</span>
+          <span className="font-bold text-white text-xs">{card.current_shield}</span>
         </div>
       </div>
+
+      {/* Abilities - compact */}
+      {card.abilities && (
+        <div className="space-y-1 flex-1">
+          {card.abilities.normal && card.abilities.normal.length > 0 && (
+            <div className="bg-red-900 bg-opacity-30 rounded px-1.5 py-0.5 flex items-center justify-between">
+              <div className="flex items-center gap-1 flex-1 min-w-0">
+                <span className="text-red-400 text-xs">💥</span>
+                <span className="text-[10px] font-semibold text-red-200 truncate">{card.abilities.normal[0].name}</span>
+              </div>
+              {card.abilities.normal[0].power > 0 && (
+                <span className="text-[10px] font-bold text-red-300 ml-1">{card.abilities.normal[0].power}</span>
+              )}
+            </div>
+          )}
+
+          {card.abilities.special && card.abilities.special.length > 0 && (
+            <div className="bg-yellow-900 bg-opacity-30 rounded px-1.5 py-0.5 flex items-center justify-between">
+              <div className="flex items-center gap-1 flex-1 min-w-0">
+                <span className="text-yellow-400 text-xs">⚡</span>
+                <span className="text-[10px] font-semibold text-yellow-200 truncate">{card.abilities.special[0].name}</span>
+              </div>
+              {card.abilities.special[0].power > 0 && (
+                <span className="text-[10px] font-bold text-yellow-300 ml-1">{card.abilities.special[0].power}</span>
+              )}
+            </div>
+          )}
+
+          {card.abilities.passive && card.abilities.passive.length > 0 && (
+            <div className="bg-purple-900 bg-opacity-30 rounded px-1.5 py-0.5 flex items-center justify-between">
+              <div className="flex items-center gap-1 flex-1 min-w-0">
+                <span className="text-purple-400 text-xs">⏫</span>
+                <span className="text-[10px] font-semibold text-purple-200 truncate">{card.abilities.passive[0].name}</span>
+              </div>
+              {card.abilities.passive[0].power > 0 && (
+                <span className="text-[10px] font-bold text-purple-300 ml-1">{card.abilities.passive[0].power}</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </motion.div>
+      <CardPreview card={card} position={mousePos} isVisible={showPreview} />
+    </>
   );
 };

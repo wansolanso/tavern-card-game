@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { Button } from '../UI/Button';
-import { useGameActions } from '../../store';
+import { useGameActions, usePlayerActions } from '../../store';
 import apiClient from '../../config/axios';
 import { API_ENDPOINTS } from '../../config/constants';
 
 export const LobbyScreen: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
   const { initializeGame, setPhase, setTavernCards } = useGameActions();
+  const { setHand } = usePlayerActions();
 
   const handleNewGame = async () => {
     try {
@@ -30,6 +31,11 @@ export const LobbyScreen: React.FC = () => {
       // Populate tavern cards if they exist in the response
       if (game.tavern && game.tavern.length > 0) {
         setTavernCards(game.tavern);
+      }
+
+      // Populate player's starting hand
+      if (game.hand && game.hand.length > 0) {
+        setHand(game.hand);
       }
     } catch (error) {
       console.error('Failed to create game:', error);

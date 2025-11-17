@@ -13,7 +13,6 @@ export interface SocketEmitEvents {
 
 export interface SocketListenEvents {
   'game:state:update': GameStateUpdate;
-  'tavern:update': { cards: Card[] };
   'card:equipped': { card: Card; slot: SlotType };
   'combat:damage': DamageEvent;
   'boss:spawned': Boss;
@@ -25,7 +24,6 @@ export interface SocketListenEvents {
 export const SOCKET_EVENTS = {
   // Incoming (Server -> Client)
   GAME_STATE_UPDATE: 'game:state:update',
-  TAVERN_UPDATE: 'tavern:update',
   CARD_EQUIPPED: 'card:equipped',
   DAMAGE_DEALT: 'combat:damage',
   BOSS_SPAWNED: 'boss:spawned',

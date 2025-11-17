@@ -34,6 +34,7 @@ const playerActionsSelector = (state: GameStore) => ({
   unequipCard: state.unequipCard,
   addToHand: state.addToHand,
   removeFromHand: state.removeFromHand,
+  setHand: state.setHand,
   upgradeSlot: state.upgradeSlot,
   setAbility: state.setAbility,
   takeDamage: state.takeDamage,

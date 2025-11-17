@@ -59,10 +59,10 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-tavern-dark">
+    <div className="h-screen flex flex-col bg-tavern-dark overflow-hidden">
       <ConnectionBanner />
       <GameHeader />
-      <main className="flex-1 flex flex-col">
+      <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {renderPhase()}
       </main>
       <NotificationContainer notifications={ui.notifications} />

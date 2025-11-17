@@ -11,18 +11,26 @@ async function createRedisClient() {
   // Check if Redis should be optional (for development)
   const redisOptional = process.env.REDIS_OPTIONAL === 'true' || process.env.NODE_ENV === 'development';
 
+  // Skip Redis entirely if optional and no URL configured
+  if (redisOptional && !process.env.REDIS_URL) {
+    logger.info('Redis disabled (REDIS_OPTIONAL=true, no URL configured)');
+    redisClient = null;
+    return null;
+  }
+
   try {
     redisClient = redis.createClient({
       url: process.env.REDIS_URL || 'redis://localhost:6379',
       password: process.env.REDIS_PASSWORD || undefined,
       socket: {
         reconnectStrategy: (retries) => {
+          if (retries > 0 && redisOptional) {
+            // Don't retry if Redis is optional
+            return false;
+          }
           if (retries > 3) {
             logger.warn('Redis: Max reconnection attempts reached');
-            if (!redisOptional) {
-              return new Error('Max reconnection attempts reached');
-            }
-            return false; // Stop reconnecting
+            return new Error('Max reconnection attempts reached');
           }
           return Math.min(retries * 100, 1000);
         }
@@ -31,7 +39,7 @@ async function createRedisClient() {
 
     redisClient.on('error', (err) => {
       if (redisOptional) {
-        logger.warn('Redis Client Error (optional mode):', err.message);
+        logger.debug('Redis Client Error (optional mode):', err.message);
       } else {
         logger.error('Redis Client Error:', err);
       }
@@ -42,7 +50,9 @@ async function createRedisClient() {
     });
 
     redisClient.on('reconnecting', () => {
-      logger.warn('Redis: Reconnecting...');
+      if (!redisOptional) {
+        logger.warn('Redis: Reconnecting...');
+      }
     });
 
     await redisClient.connect();
@@ -50,7 +60,7 @@ async function createRedisClient() {
     return redisClient;
   } catch (error) {
     if (redisOptional) {
-      logger.warn('Redis not available, running without cache');
+      logger.info('Redis not available, running without cache');
       redisClient = null;
       return null;
     }

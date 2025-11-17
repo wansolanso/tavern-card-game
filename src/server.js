@@ -7,7 +7,7 @@ const CardService = require('./services/CardService');
 const logger = require('./utils/logger');
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || 'localhost';
+const HOST = process.env.HOST || '0.0.0.0'; // Permite conexões de qualquer IP na rede
 
 // Create HTTP server
 const server = http.createServer(app);
@@ -28,11 +28,12 @@ async function startServer() {
     await CardService.warmCache();
 
     // Start server
-    server.listen(PORT, HOST, () => {
-      logger.info(`Server running on http://${HOST}:${PORT}`);
+    server.listen(PORT, '0.0.0.0', () => {
+      logger.info(`Server running on http://0.0.0.0:${PORT}`);
       logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-      logger.info(`API available at http://${HOST}:${PORT}/api/v1`);
-      logger.info(`WebSocket available at ws://${HOST}:${PORT}`);
+      logger.info(`API available at http://0.0.0.0:${PORT}/api/v1`);
+      logger.info(`WebSocket available at ws://0.0.0.0:${PORT}`);
+      logger.info(`Access from network: http://<your-ip>:${PORT}`);
     });
   } catch (error) {
     logger.error('Failed to start server:', error);

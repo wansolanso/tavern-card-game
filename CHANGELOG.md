@@ -1,5 +1,327 @@
 # Tavern Card Game - Changelog
 
+## [2025-11-16] Adaptive Responsive Layout - 6 Card Tavern
+
+**Status**: ✅ FEATURE COMPLETED
+**Type**: UI/UX Redesign
+**Impact**: Adaptive layout with larger, more visible cards without fixed scaling
+
+### Summary
+
+Completely redesigned the game board layout to use adaptive responsive design instead of fixed scaling. Reduced tavern cards from 9 to 6 for better visibility and easier gameplay. All elements now scale naturally with the viewport using flexbox and grid, with significantly larger card sizes for improved readability.
+
+### Changes Made
+
+#### Backend - src/constants/game.js
+- Changed `TAVERN_SIZE` from 9 to 6 cards
+
+#### Frontend - client/src/components/Board/GameBoard.tsx
+- **REMOVED** fixed `scale(0.55)` transformation
+- Implemented fully responsive layout with flexbox
+- Grid layout: 3 columns × 2 rows for 6 tavern cards
+- Increased spacing: `gap-2` for better visual separation
+- Larger headings: `text-base` for section headers
+- Equipment panel width: `w-64` (increased from `w-56`)
+- Hand area height: `h-24` with `h-16` card container
+- Hand card width: `w-56` (increased from `w-48`)
+- Tavern grid: `overflow-y-auto` allows scrolling if needed
+- Adaptive padding: `p-2` throughout for better spacing
+
+#### Frontend - client/src/components/Cards/TavernCard.tsx
+- Card icon height: `h-12` (balanced size)
+- Icon size: `text-2xl` (readable but not oversized)
+- Card name: `text-sm` (larger, more readable)
+- Stats display: `text-base` icons, `text-sm` values
+- Increased padding: `p-2` on card container
+- Ability spacing: `space-y-0.5` for compact display
+- Ability text: `text-xs` (readable)
+- Enhanced visual hierarchy with larger elements
+
+### Benefits
+
+- ✅ **No fixed scaling** - truly adaptive layout
+- ✅ **Larger cards** - significantly improved readability
+- ✅ **Fewer cards** - 6 instead of 9 reduces cognitive load
+- ✅ **Better spacing** - more breathing room between elements
+- ✅ **Natural responsiveness** - adapts to viewport naturally
+- ✅ **Improved UX** - easier to read and interact with cards
+- ✅ **Scrollable grid** - allows viewing all content without clipping
+
+### Testing
+
+- ✅ Verified with Playwright screenshots
+- ✅ All 6 tavern cards fully visible
+- ✅ Grid layout: 3×2 configuration
+- ✅ Equipment slots properly sized and visible
+- ✅ Hand cards clearly displayed
+- ✅ No clipping with overflow-y-auto on grid
+- ✅ Natural responsive behavior without fixed scale
+
+---
+
+## [2025-11-16] Viewport Scaling Fix - Eliminate Tavern Card Clipping
+
+**Status**: ✅ BUGFIX COMPLETED
+**Type**: UI/Layout Fix
+**Impact**: All tavern cards now fit within viewport without clipping or scrolling
+
+### Summary
+
+Fixed critical clipping issue where the third row of tavern cards was being cut off outside the visible area. Adjusted viewport scaling from 0.75 to 0.55 to ensure all 9 tavern cards, equipment slots, and hand cards fit completely within the screen without any scrolling or clipping.
+
+### Changes Made
+
+#### client/src/components/Board/GameBoard.tsx
+- Reduced scale from `scale(0.75)` to `scale(0.55)` in GameBoard.tsx:140
+- All 3 rows of tavern cards now fully visible (9 cards total)
+- Equipment panel on right side fully visible
+- Hand section at bottom fully visible
+- No scrolling required, everything fits in viewport
+
+### Testing
+
+- ✅ Verified with Playwright screenshots
+- ✅ All 9 tavern cards visible (3 rows × 3 columns)
+- ✅ Row 1: Phoenix Guardian, Ranger, Ancient Sage
+- ✅ Row 2: Armor Smith, Berserker, Sentinel
+- ✅ Row 3: Shadow Assassin, Veteran Soldier, Axe Warrior
+- ✅ Equipment slots and hand cards fully visible
+- ✅ No clipping outside visible area
+
+---
+
+## [2025-11-16] Drag-and-Drop Card Equipping System
+
+**Status**: ✅ FEATURE COMPLETED
+**Type**: UI/UX Enhancement
+**Impact**: Players can now drag cards from hand to equipment slots with visual preview
+
+### Summary
+
+Implemented a comprehensive drag-and-drop system for equipping cards, replacing the basic text display with rich card previews and intuitive drag-and-drop interactions. Cards in the player's hand now show full details including stats, abilities, and rarity, and can be dragged directly to compatible equipment slots.
+
+### Changes Made
+
+#### 1. ✅ client/src/components/Cards/HandCard.tsx (NEW)
+- Full card preview component with drag-and-drop support
+- Displays card image, name, type, slot icon, rarity badge
+- Shows stats (HP, Attack, Defense) with icons
+- Card description and abilities preview
+- Visual drag hint: "Drag to equip"
+- Framer Motion animations for smooth interactions
+- Integrates with Zustand store via `setDraggedCard()`
+
+#### 2. ✅ client/src/components/Board/EquipmentSlot.tsx (NEW)
+- Drop zone component for equipment slots
+- Visual feedback when dragging compatible cards (pulse animation, highlight)
+- Shows equipped card with preview or empty slot state
+- Click to unequip functionality
+- Slot level indicator badge
+- Slot-specific colors and icons (HP=red, Shield=blue, Special=purple, etc.)
+- Validates card-slot compatibility before accepting drop
+
+#### 3. ✅ client/src/components/Board/GameBoard.tsx
+- Added `handleEquipCard()` - API call to equip card, updates Zustand store
+- Added `handleUnequipCard()` - API call to unequip card, updates Zustand store
+- Replaced basic text hand display with `HandCard` components
+- Replaced basic slot display with `EquipmentSlot` components
+- Notifications for successful/failed equip/unequip actions
+- Error boundaries for component isolation
+- Responsive grid layout for equipment slots and hand
+
+### Features
+
+**Card Preview in Hand:**
+- Rich visual card display with all details
+- Rarity-based border colors
+- Stat display with contextual icons
+- Abilities preview (first 8 chars of each ability)
+- Slot type indicator icon
+
+**Drag-and-Drop System:**
+- Native HTML5 drag-and-drop API
+- Visual drag image follows cursor
+- Compatible slots highlight with pulse animation
+- Invalid slots remain inactive
+- Smooth state transitions with Framer Motion
+
+**Equipment Slots:**
+- Color-coded by slot type (HP/Shield/Special/Passive/Normal)
+- Shows equipped card with mini preview
+- Click equipped card to unequip
+- Slot level badge for upgraded slots
+- Empty state with helpful text
+
+**User Feedback:**
+- Success notifications on equip
+- Info notifications on unequip
+- Error notifications on failure
+- Visual compatibility indicators
+- Drag hints and instructions
+
+### API Integration
+
+```typescript
+// Equip endpoint
+POST /api/v1/games/:gameId/equip
+Body: { cardId: string, slot: SlotType }
+
+// Unequip endpoint
+POST /api/v1/games/:gameId/unequip
+Body: { cardId: string }
+```
+
+### Technical Details
+
+**State Management:**
+- Uses Zustand `draggedCard` state for drag tracking
+- Updates `player.hand` and `player.equippedCards` on equip/unequip
+- Optimistic UI updates with API error rollback capability
+
+**Validation:**
+- Client-side: Card slot must match equipment slot type
+- Server-side: Additional validation via GameService
+
+**Performance:**
+- Error boundaries prevent cascading failures
+- Shallow comparison with `useShallow` for optimized re-renders
+- Framer Motion animations for 60fps interactions
+
+---
+
+## [2025-11-16] Player Starting Inventory - 4 Cards on Game Creation
+
+**Status**: ✅ FEATURE COMPLETED
+**Type**: Game Mechanic Enhancement
+**Impact**: Players now start with 4 equippable cards in their hand
+
+### Summary
+
+Implemented starting inventory system where players receive 4 random cards when creating a new game. These cards can be equipped to slots immediately, giving players strategic choices from the start instead of beginning with an empty hand.
+
+### Changes Made
+
+#### 1. ✅ src/constants/game.js
+- Added `STARTING_HAND_SIZE: 4` constant to `GAME_CONFIG`
+- Centralized configuration for initial player inventory size
+
+#### 2. ✅ src/services/GameService.js
+- Updated `createGame()` method to generate 4 random starting cards
+- Cards are added to player's hand via `GameRepository.addCardToHand()`
+- Enhanced logging: `Game {id} created for player {playerId} with 4 starting cards`
+
+#### 3. ✅ client/src/store/slices/playerSlice.ts
+- Added `setHand(cards: Card[])` action to set entire hand at once
+- More efficient than adding cards individually
+- Type definition updated in PlayerSlice interface
+
+#### 4. ✅ client/src/store/index.ts
+- Added `setHand` to `playerActionsSelector` for hook export
+- Now available via `usePlayerActions()` hook
+
+#### 5. ✅ client/src/components/Board/LobbyScreen.tsx
+- **CRITICAL FIX**: Populate player hand from game creation response
+- Added `setHand(game.hand)` to populate starting cards in Zustand store
+- Previously only tavern cards were being set, causing "Empty hand" display
+- Now properly initializes player inventory on game creation
+
+### Implementation Details
+
+```javascript
+// Generate starting hand
+const startingHandCards = await CardService.getRandomCards(GAME_CONFIG.STARTING_HAND_SIZE);
+
+for (const card of startingHandCards) {
+  await GameRepository.addCardToHand(game.id, card.id);
+}
+```
+
+### Database Verification
+
+```bash
+# Game 23 successfully created with 4 cards
+node -e "db('game_cards').where({game_id: 23, location: 'hand'}).then(r => console.log(r.length))"
+# Output: 4 ✅
+```
+
+### Server Logs Confirmation
+
+```
+[INFO] Generated 4 random cards
+[INFO] Game 23 created for player 39 with 4 starting cards
+```
+
+### Issue Fixed
+
+**Problem**: Frontend displayed "Empty hand" despite backend correctly creating 4 starting cards
+- Backend was working correctly (verified via database and logs)
+- Frontend `LobbyScreen.tsx` was only setting tavern cards, not player hand
+- Zustand store's `player.hand` remained empty on game creation
+
+**Solution**: Added frontend state management for hand initialization
+- Created `setHand()` action in playerSlice to set entire hand efficiently
+- Updated `LobbyScreen.tsx` to populate hand from API response: `setHand(game.hand)`
+- Complete data flow: API → LobbyScreen → Zustand store → UI rendering
+
+### Game Flow
+
+1. Player creates new game
+2. Backend generates 9 tavern cards (existing)
+3. **NEW**: Backend generates 4 random cards for player's hand
+4. **NEW**: Frontend populates Zustand store with hand data
+5. Player can immediately equip cards to HP, Shield, Special, Passive, or Normal slots
+6. Game begins in tavern phase with equipment ready
+
+### Benefits
+
+- **Better UX**: Players have immediate agency and strategic options
+- **Faster Gameplay**: No need to defeat tavern cards just to get first equipment
+- **Strategic Depth**: Choice of which cards to equip first adds decision-making from turn 1
+
+---
+
+## [2025-11-16] WebSocket Event Cleanup - Removed Dead Code
+
+**Status**: ✅ CLEANUP COMPLETED
+**Type**: Code Quality / Dead Code Removal
+**Impact**: Frontend WebSocket event handlers cleaned up
+
+### Summary
+
+Removed unused `tavern:update` WebSocket event from frontend code. This event was defined in TypeScript types and had an active listener, but was never emitted by the backend server.
+
+### Changes Made
+
+#### 1. ✅ client/src/types/websocket.ts
+- Removed `'tavern:update': { cards: Card[] }` from `SocketListenEvents` interface
+- Removed `TAVERN_UPDATE: 'tavern:update'` from `SOCKET_EVENTS` constant
+
+#### 2. ✅ client/src/hooks/useSocketHandlers.ts
+- Removed `socket.on(SOCKET_EVENTS.TAVERN_UPDATE, ...)` listener (lines 44-47)
+- Removed `socket.off(SOCKET_EVENTS.TAVERN_UPDATE)` cleanup
+
+#### 3. ✅ docs/websocket-events.md
+- Updated "Not Implemented" section to reflect removal
+- Added note about cleanup date (2025-11-16)
+
+### Why This Change?
+
+The backend (`src/websocket/socketHandlers.js`) never emitted `tavern:update`. Instead, it uses:
+- `game_updated` for equip/unequip/discard/upgrade actions
+- `combat_result` for attack outcomes
+
+The frontend already handles `game_updated` correctly (lines 139-147 in useSocketHandlers.ts), making the `tavern:update` listener completely redundant.
+
+### Verification
+
+```bash
+# Confirmed no remaining references
+grep -r "tavern:update\|TAVERN_UPDATE" client/src
+# Result: No matches found ✅
+```
+
+---
+
 ## [2025-11-16] Documentation Fixes Applied - 100% Accuracy Restored
 
 **Status**: ✅ FIXES COMPLETED - All critical documentation errors corrected

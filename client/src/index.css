@@ -7,12 +7,12 @@
     @apply box-border;
   }
 
-  body {
-    @apply m-0 min-h-screen bg-tavern-dark text-white font-body antialiased;
+  html, body {
+    @apply m-0 h-screen w-screen bg-tavern-dark text-white font-body antialiased overflow-hidden;
   }
 
   #root {
-    @apply min-h-screen w-full;
+    @apply h-screen w-screen overflow-hidden;
   }
 }
 

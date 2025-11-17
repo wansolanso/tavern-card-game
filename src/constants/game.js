@@ -67,11 +67,12 @@ const CACHE_CONFIG = {
  */
 const GAME_CONFIG = {
   // Tavern configuration
-  TAVERN_SIZE: 9,                    // Number of cards in tavern at once
+  TAVERN_SIZE: 6,                    // Number of cards in tavern at once
 
   // Player configuration
   STARTING_HP: 100,                  // Initial player health points
   STARTING_MAX_HP: 100,              // Initial max HP
+  STARTING_HAND_SIZE: 4,             // Number of cards player starts with
 
   // Cache configuration (for backwards compatibility)
   GAME_CACHE_TTL: CACHE_CONFIG.GAME_TTL,

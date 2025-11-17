@@ -36,6 +36,23 @@ class GameRepository {
       return acc;
     }, {});
   }
+
+  /**
+   * Transform card from DB format to frontend format
+   * Converts flat hp/shield fields to stats object
+   */
+  transformCardForFrontend(card) {
+    const { hp, shield, ...rest } = card;
+    return {
+      ...rest,
+      stats: {
+        hp: hp || 0,
+        attack: 0,
+        defense: shield || 0,
+        value: hp || 0
+      }
+    };
+  }
   async create(playerId) {
     const result = await db('games')
       .insert({
@@ -164,26 +181,26 @@ class GameRepository {
     // OPTIMIZATION: Single query to load ALL abilities for ALL cards
     const abilitiesMap = await this.bulkLoadAbilities(allCardIds);
 
-    // Attach abilities to hand cards
-    const hand = handCards.map(card => ({
+    // Attach abilities to hand cards and transform to frontend format
+    const hand = handCards.map(card => this.transformCardForFrontend({
       ...card,
       abilities: abilitiesMap[card.id] || {}
     }));
 
-    // Attach abilities to equipped cards and group by slot
+    // Attach abilities to equipped cards, transform to frontend format, and group by slot
     const equipped = equippedCards.reduce((acc, card) => {
       const slot = card.slot_type;
       if (!acc[slot]) {
         acc[slot] = [];
       }
-      acc[slot].push({
+      acc[slot].push(this.transformCardForFrontend({
         ...card,
         abilities: abilitiesMap[card.id] || {}
-      });
+      }));
       return acc;
     }, {});
 
-    // Attach abilities to tavern cards
+    // Attach abilities to tavern cards (keep HP and shield for tavern cards)
     const tavern = tavernCards.map(card => ({
       ...card,
       abilities: abilitiesMap[card.id] || {}
@@ -343,13 +360,21 @@ class GameRepository {
     const slotCapacity = await this.getSlotCapacity(gameId, slot);
     const currentlyEquipped = await db('game_cards')
       .where({ game_id: gameId, slot_type: slot, location: 'equipped' })
-      .count('* as count')
-      .first();
+      .select('card_id');
 
-    if (currentlyEquipped.count >= slotCapacity) {
-      throw new ConflictError(`Slot ${slot} is full (capacity: ${slotCapacity})`);
+    // If slot is full, unequip the old card(s) first
+    if (currentlyEquipped.length >= slotCapacity) {
+      // Unequip all cards in this slot to make room
+      await db('game_cards')
+        .where({ game_id: gameId, slot_type: slot, location: 'equipped' })
+        .update({
+          location: 'hand',
+          slot_type: null,
+          slot_position: null
+        });
     }
 
+    // Equip the new card
     await db('game_cards')
       .where({ game_id: gameId, card_id: cardId })
       .update({

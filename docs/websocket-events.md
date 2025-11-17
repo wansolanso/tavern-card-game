@@ -968,7 +968,6 @@ The following events are defined in `client/src/types/websocket.ts` but **NOT im
 
 **Server → Client (Not Implemented):**
 - `game:state:update` - Not emitted by server (uses `game_updated` instead)
-- `tavern:update` - Not emitted by server
 - `card:equipped` - Not emitted by server (uses `game_updated` instead)
 - `combat:damage` - Not emitted by server
 - `boss:spawned` - Not implemented (boss system incomplete)
@@ -983,7 +982,7 @@ The following events are defined in `client/src/types/websocket.ts` but **NOT im
 - `action:ability` - Not implemented (ability targeting not implemented)
 - `action:boss:ready` - Not implemented (boss system incomplete)
 
-**Recommendation:** Remove unused constants from `client/src/types/websocket.ts` to match actual implementation.
+**Note:** Unused `tavern:update` event has been removed from client types (2025-11-16).
 
 ---
 

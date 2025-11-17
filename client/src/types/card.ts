@@ -28,14 +28,14 @@ export const CardType = {
 
 export type CardType = (typeof CardType)[keyof typeof CardType];
 
-export interface CardStats {
+export type CardStats = {
   hp?: number;
   attack?: number;
   defense?: number;
   value: number;
-}
+};
 
-export interface Card {
+export type Card = {
   id: string;
   name: string;
   description: string;
@@ -47,9 +47,9 @@ export interface Card {
   abilities?: string[];
   createdAt?: string;
   updatedAt?: string;
-}
+};
 
-export interface Ability {
+export type Ability = {
   id: string;
   name: string;
   description: string;
@@ -57,9 +57,9 @@ export interface Ability {
   damage?: number;
   effect?: string;
   iconUrl?: string;
-}
+};
 
-export interface Boss {
+export type Boss = {
   id: string;
   name: string;
   description: string;
@@ -68,4 +68,4 @@ export interface Boss {
   maxHp: number;
   phase: number;
   abilities: Ability[];
-}
+};

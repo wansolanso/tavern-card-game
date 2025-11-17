@@ -35,6 +35,13 @@ class GameService {
         );
       }
 
+      // Initialize player's starting hand with random cards
+      const startingHandCards = await CardService.getRandomCards(GAME_CONFIG.STARTING_HAND_SIZE);
+
+      for (const card of startingHandCards) {
+        await GameRepository.addCardToHand(game.id, card.id);
+      }
+
       // Update game with starting HP
       await GameRepository.update(game.id, {
         player_current_hp: GAME_CONFIG.STARTING_HP,
@@ -47,7 +54,7 @@ class GameService {
       // Cache game state
       await this.cacheGameState(fullGame);
 
-      logger.info(`Game ${game.id} created for player ${playerId}`);
+      logger.info(`Game ${game.id} created for player ${playerId} with ${GAME_CONFIG.STARTING_HAND_SIZE} starting cards`);
 
       return fullGame;
     } catch (error) {
@@ -110,8 +117,32 @@ class GameService {
       // Clear cache
       await this.clearGameCache(gameId);
 
-      // Return updated game state
+      // Get updated game state
       const game = await this.getGame(gameId);
+
+      // Recalculate player_max_hp if HP card was equipped
+      if (slot === 'hp' && game.equipped.hp && game.equipped.hp.length > 0) {
+        // HP is ONLY from equipped cards, not base + cards
+        const totalHp = game.equipped.hp.reduce((sum, card) => {
+          return sum + (card.stats?.hp || 0);
+        }, 0);
+
+        const newMaxHp = totalHp;
+
+        // Update max HP and heal player to full
+        await GameRepository.update(gameId, {
+          player_max_hp: newMaxHp,
+          player_current_hp: newMaxHp
+        });
+
+        // Clear cache again and reload game state
+        await this.clearGameCache(gameId);
+        const updatedGame = await this.getGame(gameId);
+
+        logger.info(`Card ${cardId} equipped in slot ${slot} for game ${gameId} - Max HP updated to ${newMaxHp}`);
+
+        return updatedGame;
+      }
 
       logger.info(`Card ${cardId} equipped in slot ${slot} for game ${gameId}`);
 
@@ -132,12 +163,43 @@ class GameService {
       requirePositiveInteger(gameId, 'gameId');
       requirePositiveInteger(cardId, 'cardId');
 
+      // Get game state before unequipping to check if it's an HP card
+      const gameBefore = await this.getGame(gameId);
+      const wasHpCard = gameBefore.equipped.hp?.some(card => card.id === cardId);
+
       await GameRepository.unequipCard(gameId, cardId);
 
       // Clear cache
       await this.clearGameCache(gameId);
 
+      // Get updated game state
       const game = await this.getGame(gameId);
+
+      // Recalculate player_max_hp if HP card was unequipped
+      if (wasHpCard) {
+        // HP is ONLY from equipped cards, no base HP
+        const totalHp = (game.equipped.hp || []).reduce((sum, card) => {
+          return sum + (card.stats?.hp || 0);
+        }, 0);
+
+        const newMaxHp = totalHp; // If 0 cards equipped, maxHP = 0
+
+        // Update max HP and clamp current HP to new max
+        const newCurrentHp = Math.min(game.player_current_hp, newMaxHp);
+
+        await GameRepository.update(gameId, {
+          player_max_hp: newMaxHp,
+          player_current_hp: newCurrentHp
+        });
+
+        // Clear cache again and reload game state
+        await this.clearGameCache(gameId);
+        const updatedGame = await this.getGame(gameId);
+
+        logger.info(`Card ${cardId} unequipped for game ${gameId} - Max HP updated to ${newMaxHp}`);
+
+        return updatedGame;
+      }
 
       logger.info(`Card ${cardId} unequipped for game ${gameId}`);
 

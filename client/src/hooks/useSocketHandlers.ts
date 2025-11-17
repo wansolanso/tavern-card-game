@@ -40,12 +40,6 @@ export const useSocketHandlers = () => {
       }
     });
 
-    // Tavern updates
-    socket.on(SOCKET_EVENTS.TAVERN_UPDATE, (data: { cards: Card[] }) => {
-      logger.debug('Tavern update:', data);
-      gameActions.setTavernCards(data.cards);
-    });
-
     // Card equipped
     socket.on(SOCKET_EVENTS.CARD_EQUIPPED, (data: { card: Card; slot: string }) => {
       logger.debug('Card equipped:', data);
@@ -183,7 +177,6 @@ export const useSocketHandlers = () => {
 
     return () => {
       socket.off(SOCKET_EVENTS.GAME_STATE_UPDATE);
-      socket.off(SOCKET_EVENTS.TAVERN_UPDATE);
       socket.off(SOCKET_EVENTS.CARD_EQUIPPED);
       socket.off(SOCKET_EVENTS.DAMAGE_DEALT);
       socket.off(SOCKET_EVENTS.BOSS_SPAWNED);
